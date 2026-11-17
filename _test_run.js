@@ -210,6 +210,8 @@ window.addEventListener("load", () => {
       q("#gear").click(); must(q("#gk") && q("#sassist") && q("#sdata"), "fiche réglages incomplète");
       q("#gk").value = 2300; q("#gsave").click(); must(D.kcalJour === 2300 && S.cfg.kcalJour === 2300, "objectif non enregistré");
       S.tab = "journal"; render(); must(/2300/.test(q("#view").textContent), "objectif absent du journal");
+      q(".ringcard [data-goal]").click(); must(q("#gp"), "toucher l'objectif n'ouvre pas sa fiche"); q("#gp").value = 120; q("#gsave").click();
+      must(D.protJour === 120 && /120 g/.test(q("#view").textContent) && J.view !== "cal", "objectif protéines non changé depuis le journal");
       const v = JSON.parse(JSON.stringify(buildView()));
       must(v.goals.kcal_par_jour === 2300 && v.week.prevu.length && v.journal.length && Array.isArray(v.pantry) && v.shopping.length, "résumé incomplet : " + Object.keys(v));
       must(!S.sync, "la synchro ne doit pas être active sans accord");

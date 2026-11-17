@@ -181,6 +181,15 @@ function saveGoals() {
   const k = +$("#gk").value, p = +$("#gp").value;
   if (k >= 800 && p >= 20 && (k !== D.kcalJour || p !== D.protJour)) { S.cfg = { ...(S.cfg || {}), kcalJour: Math.round(k), protJour: Math.round(p) }; applyCfg(); }
 }
+function sheetGoals() { // ouvert en touchant l'objectif dans le journal
+  openSheet(`<h3>🎯 Mes objectifs</h3><p class="sub">Ce que tu vises chaque jour. Le journal et le calendrier se règlent dessus.</p>${goalsFormHTML()}
+    <button class="primary wide" id="gsave" style="margin-top:14px">Enregistrer</button>`, () => {
+    $("#gsave").onclick = () => {
+      if (!(+$("#gk").value >= 800) || !(+$("#gp").value >= 20)) return toast("Au moins 800 kcal et 20 g de protéines");
+      saveGoals(); save(); closeSheet(); render(); toast("Objectifs enregistrés");
+    };
+  });
+}
 function sheetWelcome() {
   openSheet(`<h3>👋 Bienvenue</h3>${ABOUT}
     <h4>Tes objectifs <small>(modifiables plus tard dans ⚙️)</small></h4>${goalsFormHTML()}

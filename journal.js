@@ -48,9 +48,9 @@ function renderJournal() {
     <svg viewBox="0 0 160 160" class="ring"><circle cx="80" cy="80" r="70" class="bg"/>
       <circle cx="80" cy="80" r="70" class="fg ${left < 0 ? "over" : ""}" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - ratio)}"/>
       <text x="80" y="78" class="big">${Math.abs(left)}</text><text x="80" y="102" class="lbl">${left < 0 ? "kcal en trop" : "kcal restantes"}</text></svg>
-    <div class="side"><b>${D.kcalJour}</b><small>objectif</small></div>
+    <div class="side" data-goal><b>${D.kcalJour}</b><small>objectif ✎</small></div>
   </div>
-  <div class="macro"><span>Protéines</span><div class="bar"><i style="width:${Math.min(100, p / D.protJour * 100)}%"></i></div><b>${p} / ${D.protJour} g</b></div>`;
+  <div class="macro" data-goal><span>Protéines</span><div class="bar"><i style="width:${Math.min(100, p / D.protJour * 100)}%"></i></div><b>${p} / ${D.protJour} g ✎</b></div>`;
 
   for (const [id, nom, emo] of MEALS) {
     const list = entries.filter(e => e.meal === id);
@@ -69,6 +69,7 @@ function renderJournal() {
   $("#view").onclick = e => {
     const a = e.target.closest("[data-add]");
     if (a) return openAdd(a.dataset.add);
+    if (e.target.closest("[data-goal]")) return sheetGoals(); // toucher l'objectif (kcal ou protéines) permet de le changer
     if (e.target.closest(".ringcard")) { J.view = "cal"; return render(); } // toucher l'objectif du jour ouvre le calendrier
     const en =e.target.closest("[data-entry]");
     if (en && !e.target.closest("[data-delfood]")) return sheetEditEntry(en.dataset.entry);
