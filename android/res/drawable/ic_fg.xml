@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Caddie + coche, dans la zone sûre (66/108) de l'icône adaptative -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:pathData="M33,38h7l7,32h29l6,-24H44" android:strokeColor="#ffffff" android:strokeWidth="5"
+        android:strokeLineCap="round" android:strokeLineJoin="round" android:fillColor="#00000000" />
+    <path android:pathData="M53,55l5,5l10,-10" android:strokeColor="#ffffff" android:strokeWidth="5"
+        android:strokeLineCap="round" android:strokeLineJoin="round" android:fillColor="#00000000" />
+    <path android:pathData="M50,79m-4,0a4,4 0,1 1,8 0a4,4 0,1 1,-8 0" android:fillColor="#ffffff" />
+    <path android:pathData="M73,79m-4,0a4,4 0,1 1,8 0a4,4 0,1 1,-8 0" android:fillColor="#ffffff" />
+</vector>

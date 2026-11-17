@@ -1,0 +1,12 @@
+dist/
+.wrangler/
+node_modules/
+android/build/
+android/*.apk
+android/*.idsig
+android/*.keystore
+.admin
+.dev.vars
+_test_all.html
+_test_state.js
+_test_plan.js

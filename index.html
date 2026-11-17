@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f6f4a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Courses & recettes</title>
+<meta name="description" content="Appli gratuite, sans compte : choisis tes plats de la semaine, la liste de courses se calcule toute seule. Mode cuisine pas à pas, placard, suivi des calories et protéines, recettes partagées, et un assistant (Claude, ChatGPT) qui prépare ta semaine.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<style>
+:root{--bg:#f6f5f1;--card:#fff;--ink:#1d1d1b;--muted:#77756e;--line:#e6e3dc;--accent:#1f6f4a;--accent-soft:#e3f0e8;--done:#b9b6ad}
+@media (prefers-color-scheme:dark){:root{--bg:#141413;--card:#1f1f1d;--ink:#eeece6;--muted:#9a978f;--line:#2e2d2a;--accent:#5fbf8c;--accent-soft:#1f3328;--done:#5d5b55}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding-bottom:calc(76px + env(safe-area-inset-bottom))}
+header{position:sticky;top:0;z-index:5;background:var(--bg);padding:14px 16px 10px;border-bottom:1px solid var(--line)}
+h1{font-size:20px;margin:0}
+.sub{color:var(--muted);font-size:13px}
+main{padding:12px 16px;max-width:640px;margin:0 auto}
+.bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:8px}
+.bar i{display:block;height:100%;background:var(--accent);transition:width .25s}
+.tools{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 12px}
+button{font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 12px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:18px 0 6px}
+h2.fold{cursor:pointer;background:var(--accent-soft);color:var(--accent);padding:10px 14px;border-radius:12px;margin:10px 0;display:flex;justify-content:space-between}
+.list{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.row{display:flex;align-items:center;gap:12px;padding:13px 14px;border-top:1px solid var(--line);min-height:52px;cursor:pointer;user-select:none}
+.row:first-child{border-top:0}
+.box{flex:none;width:24px;height:24px;border-radius:7px;border:2px solid var(--muted);display:grid;place-items:center}
+.row.on .box{background:var(--accent);border-color:var(--accent)}
+.row.on .box::after{content:"";width:6px;height:11px;border:solid #fff;border-width:0 2.5px 2.5px 0;transform:rotate(45deg) translate(-1px,-1px)}
+.row .txt{flex:1}
+.row .qty{color:var(--muted);font-size:14px;text-align:right}
+.row.on .txt,.row.on .qty{color:var(--done);text-decoration:line-through}
+.row .del{border:0;background:none;color:var(--muted);padding:4px 6px}
+.add{display:flex;gap:8px;margin-top:14px}
+.add input,.add select{font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 10px;min-width:0}
+.add input{flex:1}
+.empty{color:var(--muted);text-align:center;padding:30px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px;display:flex;gap:12px;align-items:center;cursor:pointer}
+.card .emo{font-size:30px}
+.card b{display:block}
+.card .grow{flex:1;min-width:0}
+.fav{border:0;background:none;font-size:24px;padding:4px 8px;color:var(--muted);flex:none}
+.fav.on{color:#d33}
+.meal{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:10px}
+.meal-top{display:flex;align-items:center;gap:10px;cursor:pointer;padding-bottom:10px}
+.meal .when{font-weight:600;width:84px;flex:none}
+.meal .what{flex:1}
+.meal .when small,.meal .what small{display:block;font-size:12px;font-weight:400;color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips button{font-size:14px;padding:7px 10px;border-radius:18px}
+.meal.extra .add{margin-top:10px}
+.row.hist{cursor:default;align-items:flex-start}
+.row.hist small{display:block;color:var(--muted);font-size:13px;margin-top:2px}
+.row.hist .qty{white-space:nowrap}
+.meal.today{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.meal.today .when small{color:var(--accent);font-weight:600}
+.meal .go{color:var(--muted);font-size:22px}
+.slide-row,.done-row{display:flex;align-items:center;gap:12px;min-height:44px}
+.slide-row .pct{width:52px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+.slide-row .ok{padding:8px 12px}
+.slide-row .ok.off{visibility:hidden} /* garde sa place : le curseur ne change pas de taille */
+input[type=range]{flex:1;-webkit-appearance:none;appearance:none;height:8px;border-radius:4px;margin:0;
+  background:linear-gradient(to right,var(--accent) var(--v,0%),var(--line) var(--v,0%))}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:30px;height:30px;border-radius:50%;background:var(--card);border:3px solid var(--accent);box-shadow:0 1px 4px rgba(0,0,0,.2)}
+.meal.fini{background:var(--accent-soft);border-color:transparent}
+.meal.fini .what{text-decoration:line-through;color:var(--muted)}
+.done-row{justify-content:space-between}
+.badge{color:var(--accent);font-weight:700}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);z-index:10}
+nav button{flex:1;border:0;border-radius:0;background:none;padding:10px 0 12px;font-size:12px;color:var(--muted)}
+nav button span{display:block;font-size:22px}
+nav button.cur{color:var(--accent);font-weight:600}
+/* Mode cuisine */
+#cook{position:fixed;inset:0;background:var(--bg);z-index:20;overflow:auto;display:none;padding-bottom:40px}
+#cook.open{display:block}
+#cook header{display:flex;align-items:center;gap:10px}
+#cook header h1{flex:1;font-size:18px}
+.step{display:flex;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px;font-size:18px;cursor:pointer}
+.step .n{flex:none;width:30px;height:30px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-weight:700;font-size:15px}
+.step.on{opacity:.45}
+.step.on .n{background:var(--accent);color:#fff}
+.step.cur{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.timer{margin-top:8px;font-size:15px}
+.wake{font-size:12px;color:var(--muted)}
+/* Journal */
+.daynav{display:flex;align-items:center;gap:6px}
+.daynav button{border:0;background:none;font-size:26px;padding:0 10px;color:var(--accent)}
+.daynav button:disabled{color:var(--line)}
+.ringcard{display:flex;align-items:center;justify-content:space-between;background:var(--card);border:1px solid var(--line);border-radius:22px;padding:16px 14px}
+.ringcard .side{text-align:center;width:70px}
+.ringcard .side b{display:block;font-size:20px}
+.ringcard small{color:var(--muted);font-size:12px}
+.ring{width:170px;height:170px;transform:rotate(-90deg)}
+.ring circle{fill:none;stroke-width:14}
+.ring .bg{stroke:var(--line)}
+.ring .fg{stroke:var(--accent);stroke-linecap:round;transition:stroke-dashoffset .4s}
+.ring .fg.over{stroke:#d9583b}
+.ring text{transform:rotate(90deg);transform-origin:80px 80px;text-anchor:middle;fill:var(--ink)}
+.ring .big{font-size:34px;font-weight:700}
+.ring .lbl{font-size:12px;fill:var(--muted)}
+.macro{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-top:10px}
+.macro .bar{flex:1;margin:0}
+.macro .bar i{background:#1f8a7a}
+.mealsec{background:var(--card);border:1px solid var(--line);border-radius:14px;margin-top:10px;overflow:hidden}
+.mealhead{display:flex;align-items:center;justify-content:space-between;padding:10px 12px 10px 14px}
+.mealhead small{color:var(--muted);margin-left:6px}
+.plus{width:36px;height:36px;border-radius:50%;padding:0;background:var(--accent);border-color:var(--accent);color:#fff;font-size:22px;line-height:1;flex:none}
+.entry{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--line)}
+.entry .txt{flex:1}
+.entry small{display:block;color:var(--muted);font-size:12px}
+.entry .qty{text-align:right;font-size:14px}
+.entry .del{border:0;background:none;color:var(--muted);width:28px;padding:4px}
+/* Écran Ajouter + fiche */
+.overlay{position:fixed;inset:0;background:var(--bg);z-index:20;overflow:auto;display:none;padding-bottom:40px}
+.overlay.open{display:block}
+.overlay header{display:flex;align-items:center;gap:10px}
+.overlay header h1{flex:1;font-size:18px}
+button.link{border:0;background:none;color:var(--accent);font-weight:600}
+.search{display:flex;gap:8px}
+.search input{flex:1;min-width:0;font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:22px;padding:10px 14px}
+.search button{border-radius:50%;width:44px;height:44px;padding:0;flex:none}
+.mealpick{margin-top:10px}
+.chips button.cur{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:600}
+.fooditem{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:10px;margin-bottom:8px;cursor:pointer}
+.fooditem img,.fooditem .ph{width:52px;height:52px;border-radius:12px;object-fit:cover;flex:none;background:var(--accent-soft);display:grid;place-items:center;font-size:24px}
+.fooditem .txt{flex:1;min-width:0}
+.fooditem small{display:block;color:var(--muted);font-size:13px}
+#sheet{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:25;display:none;align-items:flex-end}
+#sheet.open{display:flex}
+.sheetbox{background:var(--bg);width:100%;border-radius:22px 22px 0 0;padding:18px 16px calc(24px + env(safe-area-inset-bottom));max-height:90vh;overflow:auto}
+.sheetbox h3{margin:0 0 4px}
+.qtyrow{display:flex;align-items:center;gap:10px;margin:14px 0 8px;font-size:17px}
+.qtyrow input,.qform input{font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;width:110px}
+.qform{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+.qform input{width:100%}
+.qform .two{display:flex;gap:10px}
+.quick{display:flex;flex-wrap:wrap;gap:6px}
+.quick button{font-size:14px;padding:7px 10px}
+.calc{font-size:18px;margin:14px 0}
+.wide{width:100%;padding:13px}
+#cam{width:100%;border-radius:14px;background:#000;margin:10px 0;max-height:45vh}
+#toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:10px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:40}
+#toast.show{opacity:1}
+a{color:var(--accent)}
+/* Sélecteur À acheter | Placard */
+.seg{display:flex;background:var(--line);border-radius:12px;padding:3px;margin:12px 0 4px}
+.seg button{flex:1;border:0;background:none;border-radius:9px;padding:9px 0;font-weight:600;color:var(--muted)}
+.seg button.cur{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+/* Recettes */
+.card.done{opacity:.75}
+.stars{color:#e0a400;letter-spacing:1px}
+.more{display:flex;flex-direction:column;align-items:center;gap:0;width:100%;margin:26px 0 8px;border:0;background:none;color:var(--accent);font-weight:600}
+.more i{font-style:normal;font-size:30px;line-height:1;animation:bob 1.6s ease-in-out infinite}
+@keyframes bob{50%{transform:translateY(6px)}}
+.lib{min-height:calc(100vh - 140px);padding-top:8px;opacity:0;transform:translateY(24px);transition:opacity .45s,transform .45s}
+.lib.in{opacity:1;transform:none}
+.lib .search{position:sticky;top:76px;z-index:3;background:var(--bg);padding:6px 0}
+.lib .chips{display:flex;gap:6px;overflow-x:auto;margin:6px 0}
+.lib .chips button{white-space:nowrap}
+.sortrow{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:14px;margin:6px 0 12px}
+.sortrow select{font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px 8px}
+.meal .note{border:0;background:none;padding:2px 4px;font-size:13px;color:var(--muted);white-space:nowrap}
+.meal .note.on{color:#e0a400}
+/* Mode cuisine */
+.sumbox{display:flex;gap:8px;margin:12px 0 6px}
+.sumbox div{flex:1;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px;text-align:center}
+.sumbox b{display:block;font-size:19px}
+.sumbox small{color:var(--muted);font-size:11px}
+.row.ing .edit{border:0;background:var(--accent-soft);color:var(--accent);border-radius:50%;width:34px;height:34px;padding:0;flex:none}
+.row.ing.off .txt{color:var(--done);text-decoration:line-through}
+.row .txt small{color:var(--muted);font-size:12px;text-decoration:none}
+.row.addrow{color:var(--accent);font-weight:600}
+.plusbox{border-style:dashed!important;color:var(--accent);font-weight:700}
+.stepper{display:flex;align-items:center;gap:8px;margin:14px 0 4px}
+.stepper button{width:48px;height:48px;border-radius:50%;font-size:24px;padding:0;flex:none}
+.stepper input{font:inherit;font-size:22px;font-weight:700;text-align:center;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px;width:96px}
+.stepper span{color:var(--muted);flex:1}
+.stepper.small button{width:40px;height:40px}
+.stepper.small input{font-size:18px;width:70px}
+.sheetbox h4{margin:16px 0 6px;font-size:14px}
+.sheetbox h4 small{color:var(--muted);font-weight:400}
+.sheetbox .two{display:flex;gap:10px;margin-top:14px}
+.sheetbox .two>*{flex:1}
+.sheetbox textarea{width:100%;font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;margin-top:8px;resize:none}
+.sheetbox select{font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px}
+.sheetbox .chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.bravo{font-size:46px;text-align:center}
+.starpick{display:flex;justify-content:center;gap:4px;margin:12px 0 4px}
+.starpick button{border:0;background:none;font-size:38px;color:#e0a400;padding:0 4px}
+/* Placard : meubles avec étagères */
+.alert{background:#fff1e0;color:#8a4b00;border-radius:14px;padding:10px 14px;margin:10px 0;font-size:14px}
+.cab{border-radius:18px;padding:10px 10px 14px;margin-top:14px;border:1px solid var(--line)}
+.cabhead{display:flex;align-items:center;justify-content:space-between;font-weight:700;padding:2px 4px 8px}
+.cabhead small{color:var(--muted);font-weight:400}
+.cabhead .plus{width:32px;height:32px;font-size:20px}
+.shelf{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:8px 6px 6px;min-height:64px;border-bottom:7px solid var(--shelf);border-radius:0 0 3px 3px;margin-bottom:10px;box-shadow:0 4px 4px -3px rgba(0,0,0,.25)}
+.emptyshelf{grid-column:1/-1;align-self:center;text-align:center;color:var(--muted);font-size:13px;font-style:italic}
+.jar{display:flex;flex-direction:column;align-items:center;gap:1px;padding:8px 4px 6px;border-radius:12px 12px 6px 6px;background:var(--card);border:1px solid var(--line);min-width:0;position:relative}
+.jar .je{font-size:28px;line-height:1.1}
+.jar .jn{font-size:12px;font-weight:600;text-align:center;line-height:1.2;max-width:100%;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.jar .jq{font-size:11px;color:var(--muted)}
+.jar .jx{font-size:10px;font-weight:700;border-radius:8px;padding:1px 6px;margin-top:2px;background:var(--accent-soft);color:var(--accent)}
+.jar.x-soon .jx{background:#ffe7c2;color:#9a5a00}
+.jar.x-bad{border-color:#e06a50}
+.jar.x-bad .jx{background:#ffd9d0;color:#b2341b}
+.jar.tup{border-radius:10px;border-width:2px;border-color:#9cc9e8}
+.cab-frigo{--shelf:#cfe3ef;background:linear-gradient(#f3f9fc,#e7f2f8)}
+.cab-congel{--shelf:#bcd9f0;background:linear-gradient(#eef6fd,#dcecf9)}
+.cab-placard{--shelf:#b98a5e;background:linear-gradient(#f4ead9,#ead9bf)}
+.cab-epices{--shelf:#a8794f;background:linear-gradient(#f1e6d6,#e6d3b8)}
+.cab-plats{--shelf:#d9cfc0;background:linear-gradient(#fbf8f2,#f2ece1)}
+.row.price{cursor:default}
+.row.price .txt{flex:1}
+.row.price .txt small{display:block}
+.row.price input{width:90px;font:inherit;color:inherit;text-align:right;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px}
+.ticket{width:100%;max-height:30vh;object-fit:cover;object-position:top;border-radius:14px;margin:10px 0}
+.ticket.zoom{max-height:none;object-fit:contain}
+/* Semaine : accompagnements, « Tout ✓ », coût */
+.sides{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px}
+.side{font-size:14px;padding:6px 10px;border-radius:18px;background:var(--card);border:1px solid var(--line)}
+.side.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:600}
+.side small{color:var(--muted);font-weight:400}
+.link{border:0;background:none;color:var(--accent);font-weight:600;padding:6px 4px}
+.fullbtn{padding:8px 10px;font-size:14px}
+.costbox{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin:10px 0}
+.costbox>b{font-size:20px}
+.costbox small{color:var(--muted)}
+.costsvg{width:100%;height:auto;margin-top:8px;font:11px system-ui}
+.costsvg text{fill:var(--ink)}
+.costsvg .ax{fill:var(--muted)}
+/* Nouvelle semaine / nouvelle recette */
+#plan select,#plan input{font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px;min-width:0}
+#plan textarea{width:100%;font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px}
+#plan .qform input{width:100%}
+#plan .qform .two input{width:auto;flex:1}
+.plrow{padding:10px 14px;border-top:1px solid var(--line)}
+.plrow:first-child{border-top:0}
+.pltop{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.pltop select{flex:1;max-width:70%}
+.plrow input[data-pside]{width:100%;margin-top:6px}
+.ingrow{display:grid;grid-template-columns:1fr 72px 104px;gap:6px;padding:8px 10px;border-top:1px solid var(--line)}
+.ingrow:first-child{border-top:0}
+.ingrow input,.ingrow select{width:100%}
+.plrow select,.ingrow select{max-width:none}
+.quick button.link{padding:8px 4px}
+/* Étiquettes des recettes */
+.tag{display:inline-block;font-size:11px;font-weight:700;border:0;border-radius:8px;padding:2px 7px;margin-right:6px;white-space:nowrap}
+.t-complet{background:#e8e5dd;color:#55524a}.t-proteine{background:#fde0d5;color:#a23b1c}.t-legumes{background:#d9efdf;color:#1f6f4a}
+.t-feculent{background:#fbeccb;color:#8a5a00}.t-legumineuse{background:#e9e0d2;color:#6b4a1f}
+.pairlbl{font-size:13px;margin-right:4px}.t-dessert{background:#f3dcec;color:#8a2c6d}
+.pairrow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px}
+/* Photos des plats */
+.cph{display:flex;gap:6px;overflow-x:auto;margin-top:8px}
+.cph .tph{width:84px;height:84px;flex:none}
+.cph .tph.zoom{width:100%;height:auto}
+/* Portions par étiquette, planificateur */
+.cover{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.cover .tag{font-size:13px;padding:5px 10px;margin:0}
+.tag.low{outline:2px solid #d9583b}
+.card .por{color:var(--accent);font-weight:700}
+.portst{display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
+.portst button{width:30px;height:30px;border-radius:50%;padding:0;font-size:18px;line-height:1}
+.portst b{color:var(--ink);font-size:15px}
+.tagbtn{border:0;background:none;padding:0;margin-right:4px;color:var(--muted)}
+.pltop input.pn{width:64px;flex:none;text-align:center}
+.plrow .sub{margin-top:6px}
+/* Liste de courses : « déjà au placard » */
+.havebar{display:flex;align-items:center;gap:10px}
+.havebar span{flex:1}
+/* Calendrier du journal */
+.cal-week,.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.cal-week{text-align:center;color:var(--muted);font-size:13px;font-weight:600;margin-top:12px}
+.cal{margin-top:6px}
+.cal-day{aspect-ratio:1;display:grid;place-items:center;padding:0;border-radius:12px;font-size:16px;font-weight:700;border:2px solid transparent}
+.cal-blank{display:block}
+.cal-ok{background:#2e9e62;color:#fff;border-color:#2e9e62}
+.cal-part{background:#f39c3d;color:#fff;border-color:#f39c3d}
+.cal-none{background:#d9d6cf;color:#555;border-color:#d9d6cf}
+.cal-today{outline:2px solid var(--ink);outline-offset:2px}
+.legend{margin-top:14px;font-size:14px;color:var(--muted);text-align:center}
+.legend .cal-ok,.legend .cal-part,.legend .cal-none{display:inline-block;width:14px;height:14px;border-radius:4px;vertical-align:middle;font-size:0}
+.jtabs{margin:8px 0}
+@media (prefers-color-scheme:dark){
+  .cal-ok{background:#2f8a5a;border-color:#2f8a5a}
+  .cal-part{background:#c97a2c;border-color:#c97a2c}
+  .cal-none{background:#3a3935;color:#bbb;border-color:#3a3935}
+}
+/* Tickets : photos multiples */
+.tphotos{display:flex;gap:8px;overflow-x:auto;margin:10px 0}
+.tph-wrap{position:relative;flex:none}
+.tph{width:110px;height:150px;object-fit:cover;border-radius:10px;border:1px solid var(--line);display:block}
+.tph.zoom{width:100%;height:auto}
+.tph-del{position:absolute;top:4px;right:4px;border:0;border-radius:50%;width:26px;height:26px;padding:0;background:rgba(0,0,0,.6);color:#fff}
+@media (prefers-color-scheme:dark){
+  .alert{background:#3a2a14;color:#ffc77a}
+  .cab-frigo{--shelf:#3d5666;background:linear-gradient(#1d2830,#18232a)}
+  .cab-congel{--shelf:#355a7a;background:linear-gradient(#1a2633,#16212d)}
+  .cab-placard{--shelf:#6b4a2c;background:linear-gradient(#2b241c,#251e17)}
+  .cab-epices{--shelf:#5e4027;background:linear-gradient(#2a2219,#231c15)}
+  .cab-plats{--shelf:#4a443b;background:linear-gradient(#24221e,#1f1d1a)}
+  .jar.x-soon .jx{background:#4a3410;color:#ffc56b}
+  .jar.x-bad .jx{background:#4a1d14;color:#ff9c86}
+}
+/* Réglages, partage */
+#gear{position:absolute;right:8px;top:8px;border:0;background:none;font-size:20px;padding:6px 8px;z-index:1}
+body>header h1{padding-right:40px}
+.sharerow{display:flex;align-items:center;gap:10px;margin-top:12px;font-size:15px}
+.sharerow input{width:22px!important;height:22px;flex:none}
+.sheetbox label.sub{display:flex;flex-direction:column;gap:4px;flex:1}
+.sheetbox label.sub input,.sheetbox .search input{font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;width:100%;min-width:0}
+</style>
+</head>
+<body>
+<header>
+  <button id="gear" aria-label="Réglages">⚙️</button>
+  <h1 id="title"></h1>
+  <div class="sub" id="subtitle"></div>
+  <div class="bar"><i id="progress" style="width:0"></i></div>
+</header>
+<main id="view"></main>
+
+<section id="cook" aria-modal="true"></section>
+<section id="add" class="overlay" aria-modal="true"></section>
+<section id="plan" class="overlay" aria-modal="true"></section>
+<div id="sheet"></div>
+<div id="toast"></div>
+
+<nav>
+  <button data-tab="journal" class="cur"><span>📓</span>Journal</button>
+  <button data-tab="courses"><span>🛒</span>Courses</button>
+  <button data-tab="semaine"><span>📅</span>Semaine</button>
+  <button data-tab="recettes"><span>👩‍🍳</span>Recettes</button>
+</nav>
+
+<script src="data.js"></script>
+<script src="recettes.js"></script>
+<script src="zxing.min.js" defer></script>
+<script src="journal.js"></script>
+<script src="cuisine.js"></script>
+<script src="placard.js"></script>
+<script src="planner.js"></script>
+<script src="tickets.js"></script>
+<script src="cloud.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

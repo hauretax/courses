@@ -1,0 +1,9 @@
+{
+  // Déploiement : bash deploy.sh (copie l'appli dans dist/ puis lance wrangler deploy)
+  "name": "courses-recettes",
+  "main": "server/worker.js",
+  "compatibility_date": "2026-11-01",
+  "assets": { "directory": "dist", "binding": "ASSETS", "run_worker_first": ["/api/*", "/mcp/*"] },
+  "d1_databases": [{ "binding": "DB", "database_name": "courses-recettes", "database_id": "32cc8f7b-6516-4830-8275-c393feb24fe1" }],
+  "observability": { "enabled": true }
+}
