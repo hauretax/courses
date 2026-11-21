@@ -47,6 +47,16 @@ function haveItem(id) {
   S.have ||= {}; S.pantry.push(p); S.have[id] = p.id; delete S.checked[id];
   buzz(); save(); render(); toast("Noté au placard, retiré des courses");
 }
+// Les courses comptent comme faites dès qu'on a rangé des achats cette semaine (🗄️ Ranger les achats)
+const shoppingDone = () => Object.keys(S.stored || {}).length > 0;
+// Retirer un produit du placard. S'il y était entré par « J'ai déjà » et que les courses ne sont pas encore faites,
+// c'est qu'on ne l'a pas en fait : l'article revient dans la liste de courses. Renvoie true dans ce cas.
+function removePantry(p) {
+  S.pantry = S.pantry.filter(y => y.id !== p.id);
+  const back = shoppingDone() ? null : Object.keys(S.have || {}).find(id => S.have[id] === p.id);
+  if (back) delete S.have[back];
+  return !!back;
+}
 function unhaveAll() {
   const ids = new Set(Object.values(S.have || {}));
   S.pantry = S.pantry.filter(p => !ids.has(p.id)); S.have = {};
@@ -142,7 +152,7 @@ function sheetProduit(p, loc0, pre = "") {
       if (l) { p.loc = l.dataset.loc; document.querySelectorAll("#ploc button").forEach(b => b.classList.toggle("cur", b === l)); }
       const x = e.target.closest("[data-exp]"); if (x) $("#pe").value = x.dataset.exp;
       if (e.target.id === "pnew") return openNewAliment($("#pn").value, k => sheetProduit(null, loc0, AL[k].n));
-      if (e.target.id === "pdel") { S.pantry = S.pantry.filter(y => y.id !== p.id); save(); closeSheet(); render(); toast("Retiré du placard"); }
+      if (e.target.id === "pdel") { const back = removePantry(p); save(); closeSheet(); render(); toast(back ? "Retiré du placard, remis dans la liste de courses" : "Retiré du placard"); }
     };
     $("#pform").onsubmit = e => {
       e.preventDefault();

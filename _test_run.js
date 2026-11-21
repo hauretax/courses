@@ -85,6 +85,20 @@ window.addEventListener("load", () => {
     q("#unhave").click(); must(qa(".row[data-id]").length === n && stockOf(k) === st, "annulation incomplète");
     semaine();
   });
+  T("courses : retiré du placard avant d'avoir rangé les achats, l'article revient dans la liste ; après, il ne revient pas", () => {
+    S.tab = "courses"; S.ctab = "liste"; const stored = S.stored; S.stored = {}; render();
+    const n = qa(".row[data-id]").length, id = q(".row[data-id]").dataset.id;
+    q("#havemode").click(); q('.row[data-id="' + id + '"]').click(); q("#havemode").click();
+    const p = S.pantry.find(x => x.id === S.have[id]); must(p && !q('.row[data-id="' + id + '"]'), "« J'ai déjà » n'a rien mis au placard");
+    sheetProduit(p); q("#pdel").click();
+    must(!S.pantry.includes(p) && !S.have[id] && q('.row[data-id="' + id + '"]') && qa(".row[data-id]").length === n, "l'article n'est pas revenu dans la liste");
+    must(/remis dans la liste/.test(q("#toast").textContent), "message : " + q("#toast").textContent);
+    q("#havemode").click(); q('.row[data-id="' + id + '"]').click(); q("#havemode").click();
+    S.stored = { autre: true }; // des achats ont été rangés : les courses sont faites
+    const p2 = S.pantry.find(x => x.id === S.have[id]); sheetProduit(p2); q("#pdel").click();
+    must(!S.pantry.includes(p2) && S.have[id] && !q('.row[data-id="' + id + '"]'), "après les courses, l'article ne doit pas revenir");
+    S.have = {}; S.stored = stored; semaine();
+  });
   T("remise à zéro : courses et placard vidés, seul le poulet tikka de côté reste", () => {
     must(S.resetId === D.reset && S.pantry.length, "la remise à zéro s'est rejouée alors qu'elle était déjà appliquée");
     const sauve = JSON.stringify(S);
