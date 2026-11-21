@@ -54,52 +54,84 @@ function initTickets() {
 function sheetTickets() {
   const list = [...S.tickets].sort((a, b) => b.at.localeCompare(a.at));
   openSheet(`<h3>🧾 Tickets de caisse</h3>
-    <button class="primary wide" id="tnew">＋ Nouveau ticket</button>
+    <p class="sub">${S.sync ? "Une photo suffit : ton assistant lit le ticket, note les prix et range tes achats au placard." : "Prends ton ticket en photo, puis recopie les prix. Ou connecte un assistant (⚙️) : il le lira pour toi."}</p>
+    <button class="primary wide" id="tnew">📸 Prendre le ticket en photo</button>
     <div class="list" style="margin-top:12px">${list.map(t => `<div class="row" data-tk="${esc(t.id)}">
-        <span class="txt">${fmtDate(t.at)}${t.store ? " · " + esc(t.store) : ""}<small>${Object.keys(t.prices).length} prix · ${t.nPhotos || 0} photo${t.nPhotos > 1 ? "s" : ""}${t.ai === "done" ? " · 🤖 lu" : t.ai ? " · 🤖 à lire" : ""}</small></span>
+        <span class="txt">${fmtDate(t.at)}${t.store ? " · " + esc(t.store) : ""}<small>${t.ai === "done" ? "🤖 lu · " : t.ai ? "🤖 à lire · " : ""}${Object.keys(t.prices).length} prix · ${t.nPhotos || 0} photo${t.nPhotos > 1 ? "s" : ""}</small></span>
         <span class="qty">${t.total != null ? euro(t.total) : ""}</span></div>`).join("")
-      || `<p class="empty">Aucun ticket. Enregistre le premier après tes courses.</p>`}</div>`, () => {
+      || `<p class="empty">Aucun ticket. Prends le premier en photo après tes courses.</p>`}</div>`, () => {
     $("#sheet").onclick = e => {
-      if (e.target.id === "tnew") return sheetTicketEdit(null);
+      if (e.target.id === "tnew") return sheetTicketEdit(null, true);
       const r = e.target.closest("[data-tk]");
       if (r) sheetTicketEdit(S.tickets.find(t => t.id === r.dataset.tk));
     };
   });
 }
 
-async function sheetTicketEdit(t) {
-  const isNew = !t;
+// Où en est la lecture d'un ticket par l'assistant
+const aiTxtOf = t => t.ai === "done" ? `🤖 Lu par ton assistant${t.store ? " (" + esc(t.store) + ")" : ""} : prix notés, articles au placard.`
+  : !S.sync ? "🤖 Pour qu'un assistant (Claude…) lise ce ticket, note les prix et range tout au placard : ⚙️ › Connecter un assistant."
+  : t.ai === "sent" ? "✅ Envoyé. Dis à ton assistant : « lis mon ticket »."
+  : t.ai === "todo" ? "📤 Envoi à ton assistant… (dès qu'il y a du réseau)"
+  : "🤖 Prends-le en photo : ton assistant le lira, notera les prix et rangera tout au placard.";
+
+// Un ticket = des photos ; les prix se recopient à la main seulement si on le veut (volet replié quand un assistant peut le lire).
+// Chaque photo prise enregistre le ticket tout de suite et l'envoie à l'assistant : pas de formulaire à remplir.
+async function sheetTicketEdit(t, shoot) {
+  let isNew = !t;
   const T = t ? { ...t, prices: { ...t.prices } } : { id: "t" + Date.now().toString(36), at: new Date().toISOString(), prices: {}, total: null, nPhotos: 0 };
   const photos = isNew ? [] : await tkPhotos(T.id).catch(() => []);
   // Articles : ceux de la liste en cours, plus ceux déjà prix dans ce ticket (même s'ils ne sont plus dans la liste)
   const rows = D.courses.flatMap(r => r.items).filter(i => i[3]).map(i => [i[0], i[1], i[2], i[3], i[4]]);
   for (const [id, x] of Object.entries(T.prices)) if (!rows.some(r => r[0] === id)) rows.push([id, x.nom, "", x.k, x.g]);
   let changed = false; // photos ajoutées ou retirées : le ticket est à relire
-  const aiTxt = T.ai === "done" ? `🤖 Lu par ton assistant${T.store ? " (" + esc(T.store) + ")" : ""} : prix notés, articles au placard.`
-    : !S.sync ? "🤖 Pour qu'un assistant (Claude…) lise ce ticket, note les prix et range tout au placard : ⚙️ › Connecter un assistant."
-    : T.ai === "sent" ? "🤖 Envoyé : demande à ton assistant « lis mon ticket »."
-    : T.ai === "todo" ? "📤 Part à ton assistant dès qu'il y a du réseau."
-    : "🤖 Prends-le en photo et enregistre : ton assistant pourra le lire, noter les prix et tout ranger au placard.";
+  const manual = !S.sync || Object.keys(T.prices).length > 0;
   const thumbs = () => photos.map((src, j) => `<div class="tph-wrap"><img class="tph" data-zoom="${j}" src="${src}" alt="Photo ${j + 1}"><button class="tph-del" data-pdel="${j}" aria-label="Supprimer la photo">✕</button></div>`).join("");
+  const addLabel = () => photos.length ? "📸 Ajouter une photo (ticket long)" : "📸 Prendre le ticket en photo";
 
-  openSheet(`<h3>🧾 ${isNew ? "Nouveau ticket" : "Ticket"}</h3>
-    <label class="qtyrow">Date <input id="tdate" type="date" value="${dateKey(new Date(T.at))}"></label>
+  openSheet(`<h3>🧾 ${isNew ? "Nouveau ticket" : "Ticket du " + fmtDate(T.at)}</h3>
     <div class="tphotos" id="tphotos">${thumbs()}</div>
-    <button class="wide" id="tadd">📸 Ajouter une photo</button>
     <div id="tcam"></div>
-    <p class="sub">${aiTxt}</p>
-    <p class="sub">Ou recopie les prix en regardant les photos (touche une photo pour l'agrandir). Chaque prix sert au coût des recettes.</p>
-    <div class="list">${rows.map(([id, nom, qte, k, g]) => `<label class="row price"><span class="txt">${esc(nom)}<small>${esc(qte || "")}</small></span>
-      <input type="number" inputmode="decimal" step="0.01" min="0" data-price="${esc(id)}" data-k="${esc(k || "")}" data-g="${g || 0}" data-nom="${esc(nom)}" value="${T.prices[id] ? T.prices[id].p : ""}" placeholder="€"></label>`).join("")}</div>
-    <div class="calc">Total des prix saisis : <b id="tsum">0,00 €</b></div>
-    <label class="qtyrow">Total du ticket <input id="ttot" type="number" inputmode="decimal" step="0.01" value="${T.total ?? ""}"> €</label>
-    <div class="two">${isNew ? "" : `<button id="tdel">🗑️ Supprimer</button>`}<button class="primary" id="tok">Enregistrer</button></div>`, () => {
+    <button class="wide" id="tadd">${addLabel()}</button>
+    <p class="sub" id="tai">${aiTxtOf(T)}</p>
+    <details id="tman" ${manual ? "open" : ""}><summary class="sub">✏️ Recopier les prix à la main</summary>
+      <label class="qtyrow">Date <input id="tdate" type="date" value="${dateKey(new Date(T.at))}"></label>
+      <p class="sub">Touche une photo pour l'agrandir. Chaque prix sert au coût des recettes.</p>
+      <div class="list">${rows.map(([id, nom, qte, k, g]) => `<label class="row price"><span class="txt">${esc(nom)}<small>${esc(qte || "")}</small></span>
+        <input type="number" inputmode="decimal" step="0.01" min="0" data-price="${esc(id)}" data-k="${esc(k || "")}" data-g="${g || 0}" data-nom="${esc(nom)}" value="${T.prices[id] ? T.prices[id].p : ""}" placeholder="€"></label>`).join("")}</div>
+      <div class="calc">Total des prix saisis : <b id="tsum">0,00 €</b></div>
+      <label class="qtyrow">Total du ticket <input id="ttot" type="number" inputmode="decimal" step="0.01" value="${T.total ?? ""}"> €</label>
+    </details>
+    <div class="two"><button id="tdel" ${isNew ? "hidden" : ""}>🗑️ Supprimer</button><button class="primary" id="tok">${isNew ? "Enregistrer" : "Terminé"}</button></div>`, () => {
     const sum = () => { const s = [...document.querySelectorAll("[data-price]")].reduce((a, i) => a + (+i.value || 0), 0); $("#tsum").textContent = euro(s); };
     sum();
     $("#sheet").oninput = e => { if (e.target.dataset.price != null) sum(); };
-    const redraw = () => { $("#tphotos").innerHTML = thumbs(); };
+    const redraw = () => { $("#tphotos").innerHTML = thumbs(); $("#tadd").textContent = addLabel(); };
+    const status = () => { const x = S.tickets.find(y => y.id === T.id) || T; if ($("#tai")) $("#tai").textContent = aiTxtOf(x); };
+    // Enregistre le ticket tel qu'il est à l'écran ; s'il est à lire, l'envoie à l'assistant
+    const persist = async () => {
+      const prices = {};
+      for (const i of document.querySelectorAll("[data-price]")) if (i.value !== "") prices[i.dataset.price] = { p: +i.value, k: i.dataset.k || null, g: +i.dataset.g || 0, nom: i.dataset.nom };
+      const d = $("#tdate").value;
+      const at = d && d !== dateKey(new Date(T.at)) ? new Date(...d.split("-").map((x, j) => j === 1 ? x - 1 : +x), 12).toISOString() : T.at;
+      const ai = !photos.length ? null : S.sync && (changed || !T.ai) ? "todo" : T.ai || null;
+      const ticket = { id: T.id, at, prices, total: $("#ttot").value === "" ? null : +$("#ttot").value, nPhotos: photos.length, v2: true,
+        ...(ai ? { ai } : {}), ...(T.store ? { store: T.store } : {}) };
+      await tkSavePhotos(T.id, photos).catch(() => toast("Photos non enregistrées (mémoire pleine ?)"));
+      S.tickets = S.tickets.some(x => x.id === T.id) ? S.tickets.map(x => x.id === T.id ? ticket : x) : [...S.tickets, ticket];
+      Object.assign(T, ticket); changed = false; isNew = false;
+      recomputePrix(); save();
+      if (ai === "todo") { status(); sendTickets().then(status); }
+      return ticket;
+    };
+    const shot = () => camInto($("#tcam"), async src => {
+      photos.push(src); changed = true; redraw();
+      await persist(); $("#tdel").hidden = false; $("#tok").textContent = "Terminé";
+      toast(S.sync ? "Ticket enregistré · dis à ton assistant « lis mon ticket »" : `Photo ${photos.length} enregistrée`);
+    });
+    if (shoot) shot();
     $("#sheet").onclick = async e => {
-      if (e.target.closest("#tadd")) return camInto($("#tcam"), src => { photos.push(src); changed = true; redraw(); toast(`Photo ${photos.length} ajoutée`); });
+      if (e.target.closest("#tadd")) return shot();
       const z = e.target.closest("[data-zoom]"); if (z) return z.classList.toggle("zoom");
       const pd = e.target.closest("[data-pdel]");
       if (pd && confirm("Supprimer cette photo ?")) { photos.splice(+pd.dataset.pdel, 1); changed = true; redraw(); return; }
@@ -110,18 +142,8 @@ async function sheetTicketEdit(t) {
       }
       if (e.target.id === "tok") {
         stopScan();
-        const prices = {};
-        for (const i of document.querySelectorAll("[data-price]")) if (i.value !== "") prices[i.dataset.price] = { p: +i.value, k: i.dataset.k || null, g: +i.dataset.g || 0, nom: i.dataset.nom };
-        const d = $("#tdate").value;
-        const at = d && d !== dateKey(new Date(T.at)) ? new Date(...d.split("-").map((x, j) => j === 1 ? x - 1 : +x), 12).toISOString() : T.at;
-        const ai = !photos.length ? null : S.sync && (changed || !T.ai) ? "todo" : T.ai || null;
-        const ticket = { id: T.id, at, prices, total: $("#ttot").value === "" ? null : +$("#ttot").value, nPhotos: photos.length, v2: true,
-          ...(ai ? { ai } : {}), ...(T.store ? { store: T.store } : {}) };
-        await tkSavePhotos(T.id, photos).catch(() => toast("Photos non enregistrées (mémoire pleine ?)"));
-        S.tickets = S.tickets.some(x => x.id === T.id) ? S.tickets.map(x => x.id === T.id ? ticket : x) : [...S.tickets, ticket];
-        recomputePrix(); save(); closeSheet(); render();
-        if (ai === "todo") { sendTickets(); toast("Ticket enregistré · demande à ton assistant « lis mon ticket »"); }
-        else toast(`Ticket enregistré · ${Object.keys(prices).length} prix`);
+        const ticket = await persist(); closeSheet(); render();
+        toast(ticket.ai === "todo" || ticket.ai === "sent" ? "Ticket enregistré · dis à ton assistant « lis mon ticket »" : `Ticket enregistré · ${Object.keys(ticket.prices).length} prix`);
       }
     };
   });

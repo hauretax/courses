@@ -1,3 +1,4 @@
+const VERSION = "dev"; // date de mise en ligne, posée par deploy.sh (affichée dans ⚙️)
 const D = window.DATA;
 const KEY = "courses-state-v1";
 const $ = s => document.querySelector(s);

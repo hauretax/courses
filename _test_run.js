@@ -309,6 +309,29 @@ window.addEventListener("load", () => {
       must(S.pantry.length === n0 + 2, "ticket relu : poulet rangé deux fois");
       await sheetTicketEdit(t); must(/Lu par ton assistant \(Carrefour\)/.test(q("#sheet").textContent), "statut du ticket absent"); closeSheet();
     });
+    await A("ticket : une photo suffit (enregistré et envoyé tout seul, prix à la main repliés), anciens tickets photo envoyés aussi", async () => {
+      const cam0 = camInto, f0 = window.fetch, calls = [], wait = async re => { for (let i = 0; i < 40 && !calls.some(c => re.test(c)); i++) await new Promise(r => setTimeout(r, 50)); };
+      camInto = async (box, cb) => cb("data:image/jpeg;base64,AAAA");
+      window.fetch = async (url, o = {}) => { calls.push((o.method || "GET") + " " + String(url).replace(/^https?:\/\/[^/]+/, "")); return { ok: true, json: async () => ({ ok: true, inbox: [] }) }; };
+      S.sync = true;
+      try {
+        const n0 = S.tickets.length;
+        await sheetTicketEdit(null, true);
+        await wait(/PUT \/api\/receipts\//);
+        const t = S.tickets[S.tickets.length - 1];
+        must(S.tickets.length === n0 + 1 && t.nPhotos === 1, "ticket non enregistré dès la photo");
+        must(calls.includes(`PUT /api/receipts/${t.id}/0`), "photo non envoyée : " + calls.join(", "));
+        await new Promise(r => setTimeout(r, 50));
+        must(t.ai === "sent" && /lis mon ticket/.test(q("#tai").textContent), "statut : " + t.ai + " / " + q("#tai").textContent);
+        must(!q("#tman").open && q("#tok").textContent === "Terminé" && !q("#tdel").hidden, "fiche après la photo");
+        closeSheet();
+        // Ticket pris en photo avant l'envoi automatique, sans prix : parti à la synchro suivante
+        await tkSavePhotos("told", ["data:image/jpeg;base64,BBBB"]);
+        S.tickets.push({ id: "told", at: new Date().toISOString(), prices: {}, total: null, nPhotos: 1, v2: true });
+        await cloudSync(); await wait(/PUT \/api\/receipts\/told\/0/);
+        must(calls.includes("PUT /api/receipts/told/0") && S.tickets.find(x => x.id === "told").ai === "sent", "ancien ticket photo non envoyé : " + calls.join(", "));
+      } finally { camInto = cam0; window.fetch = f0; S.sync = false; closeSheet(); }
+    });
     await A("produit scanné : prix relevés par magasin (Open Prices)", async () => {
       const f0 = window.fetch;
       window.fetch = async url => ({ ok: true, json: async () => /prices\.openfoodfacts/.test(url) ? { items: [

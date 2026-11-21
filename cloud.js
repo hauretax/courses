@@ -135,7 +135,10 @@ async function cloudSync() {
     const todo = (j.inbox || []).filter(m => !S.acks.includes(m.id));
     if (todo.length) handleInbox(todo); else rawSave();
   } catch {} finally { syncing = false; }
-  if (lastSync && S.tickets.some(t => t.ai === "todo")) sendTickets();
+  if (!lastSync) return;
+  // Un ticket récent pris en photo sans aucun prix recopié (par exemple avant que l'envoi existe) : à faire lire aussi
+  for (const t of S.tickets) if (!t.ai && t.nPhotos && !Object.keys(t.prices).length && Date.now() - Date.parse(t.at) < 14 * 864e5) t.ai = "todo";
+  if (S.tickets.some(t => t.ai === "todo")) sendTickets();
 }
 // Photos des tickets à faire lire par l'assistant : envoyées une par une ; sans réseau, on réessaie à la synchro suivante
 let sendingTk = false;
@@ -281,7 +284,7 @@ function sheetSettings() {
     <button class="wide" id="sassist" style="margin-top:10px">🤖 Connecter un assistant (Claude, ChatGPT…) ${S.sync ? "· activé ✓" : ""}</button>
     <button class="wide" id="sdata" style="margin-top:10px">💾 Mes données : exporter, importer, changer de téléphone</button>
     <h4>À propos</h4>${ABOUT}
-    <p class="sub">Code source : <a href="https://github.com/hauretax/courses" target="_blank" rel="noopener">github.com/hauretax/courses</a></p>`, () => {
+    <p class="sub">Code source : <a href="https://github.com/hauretax/courses" target="_blank" rel="noopener">github.com/hauretax/courses</a> · version du ${VERSION}</p>`, () => {
     $("#gsave").onclick = () => { saveGoals(); save(); closeSheet(); render(); toast("Objectifs enregistrés"); };
     $("#sassist").onclick = sheetAssistant;
     $("#sdata").onclick = sheetData;

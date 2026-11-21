@@ -24,4 +24,7 @@ cp $FILES dist/
 V=$(cat $FILES | (shasum 2>/dev/null || sha1sum) | cut -c1-10)
 sed "s/\"courses-dev\"/\"courses-$V\"/" sw.js > dist/sw.js
 grep -q "courses-$V" dist/sw.js || { echo "✗ Version du cache non posée dans dist/sw.js"; exit 1; }
+# Date de la version, visible dans ⚙️ (pour savoir si un téléphone a bien la dernière)
+sed "s/^const VERSION = \"dev\";/const VERSION = \"$(TZ=Europe/Paris date '+%d\/%m %Hh%M')\";/" app.js > dist/app.js
+grep -q '^const VERSION = "[0-9]' dist/app.js || { echo "✗ Date de version non posée dans dist/app.js"; exit 1; }
 npx -y wrangler deploy
