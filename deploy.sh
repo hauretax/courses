@@ -18,5 +18,10 @@ npx -y wrangler whoami >/dev/null 2>&1 || { echo "✗ Pas connecté à Cloudflar
 
 # 3. Fichiers de l'appli, puis mise en ligne (le serveur server/worker.js part avec, via wrangler.jsonc)
 rm -rf dist && mkdir dist
-cp index.html app.js data.js recettes.js journal.js cuisine.js placard.js planner.js tickets.js cloud.js zxing.min.js sw.js manifest.webmanifest icon.svg dist/
+FILES="index.html app.js data.js recettes.js journal.js cuisine.js placard.js planner.js tickets.js cloud.js zxing.min.js sw.js manifest.webmanifest icon.svg"
+cp $FILES dist/
+# Nom de cache propre à cette version : les téléphones voient un nouveau sw.js et passent à la nouvelle version
+V=$(cat $FILES | (shasum 2>/dev/null || sha1sum) | cut -c1-10)
+sed "s/\"courses-dev\"/\"courses-$V\"/" sw.js > dist/sw.js
+grep -q "courses-$V" dist/sw.js || { echo "✗ Version du cache non posée dans dist/sw.js"; exit 1; }
 npx -y wrangler deploy

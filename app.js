@@ -266,4 +266,14 @@ rollWeek(); // ici et pas plus haut : utilise dateKey, défini au milieu de ce f
 render();
 startCloud();
 
-if (!NATIVE && location.protocol.startsWith("http") && "serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+// Mise à jour de l'appli : la nouvelle version se télécharge en arrière-plan. On recharge tout de suite si l'appli vient de s'ouvrir,
+// sinon dès qu'on la quitte (pour ne pas couper ce qu'on est en train de faire) : au retour, c'est la nouvelle version.
+if (!NATIVE && location.protocol.startsWith("http") && "serviceWorker" in navigator) {
+  const t0 = Date.now(), had = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!had) return; // première installation : la page est déjà à jour
+    if (Date.now() - t0 < 5000) return location.reload();
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden" && !Object.keys(timers).length) location.reload(); }); // un minuteur de cuisine en cours : on attend
+  });
+}
