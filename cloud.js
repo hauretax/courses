@@ -40,17 +40,23 @@ function startCloud() { // appelé par app.js après le premier affichage
   $("#gear").onclick = sheetSettings;
   refreshCatalog();
   if (S.sync) cloudSync();
-  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && S.sync && Date.now() - lastSync > 60000) cloudSync(); });
+  // Retour dans l'appli (après avoir parlé à l'assistant dans une autre appli ou fenêtre) : on va chercher ce qu'il a déposé
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") cloudPull(); });
+  addEventListener("focus", () => cloudPull()); // ordi : deux fenêtres côte à côte, la page reste visible
+  $("#sync").onclick = pullNow; syncBtn();
   const fresh = !S.welcome && !S.plan && !(S.cooks || []).length && !(S.food || []).length;
   if (!S.welcome) { S.welcome = 1; rawSave(); }
   if (fresh) sheetWelcome(); else if (S.proposal) showProposal();
 }
 const rawSave = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {} }; // sans relancer une synchro
 async function cloudFetch(path, method = "GET", body, uid = UID) {
-  const r = await fetch(API + path, { method, headers: { authorization: "Bearer " + uid, ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error || "Erreur " + r.status);
-  return j;
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 45000); // une requête qui ne répond jamais ne doit pas bloquer les synchros suivantes
+  try {
+    const r = await fetch(API + path, { method, signal: ctl.signal, headers: { authorization: "Bearer " + uid, ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "Erreur " + r.status);
+    return j;
+  } finally { clearTimeout(t); }
 }
 
 // ---- Catalogue public ----
@@ -117,7 +123,8 @@ function buildView() {
   };
 }
 async function cloudSync() {
-  if (!S.sync || syncing || !navigator.onLine) return;
+  if (!S.sync || !navigator.onLine) return;
+  if (syncing) return cloudDirty(); // une lecture est en cours : on réessaie un peu plus tard plutôt que d'oublier l'envoi
   syncing = true; clearTimeout(syncT);
   try {
     const sent = [...S.acks], backup = JSON.stringify(S).length < 1_200_000 ? S : null;
@@ -127,6 +134,36 @@ async function cloudSync() {
     if (todo.length) handleInbox(todo); else rawSave();
   } catch {} finally { syncing = false; }
 }
+// Lecture légère de ce que l'assistant a déposé, sans renvoyer toutes les données : c'est ce qui rend l'arrivée rapide.
+// Renvoie le nombre d'éléments reçus, ou null si le serveur n'a pas répondu.
+let lastPull = 0;
+async function cloudPull(force) {
+  if (!S.sync || syncing || !navigator.onLine || (!force && Date.now() - lastPull < 3000)) return null; // retour + focus arrivent souvent ensemble
+  syncing = true; lastPull = Date.now(); let got = 0;
+  try {
+    const j = await cloudFetch("/api/inbox");
+    const todo = (j.inbox || []).filter(m => !S.acks.includes(m.id));
+    if (todo.length) { handleInbox(todo); got = todo.length; }
+  } catch { got = null; } finally { syncing = false; }
+  if (got !== null && (got || force || Date.now() - lastSync > 60000)) cloudSync(); // accusé de réception et copie à jour pour l'assistant
+  return got;
+}
+// Bouton 🔄 : une fois toutes les 15 s au plus
+const PULL_WAIT = 15000;
+let pullT = null;
+function syncBtn() { const b = $("#sync"); if (b) b.hidden = !S.sync; }
+async function pullNow() {
+  const b = $("#sync"), left = PULL_WAIT - (Date.now() - lastPull);
+  if (b.classList.contains("spin")) return;
+  if (left > 0) return toast(`Déjà vérifié : réessaie dans ${Math.ceil(left / 1000)} s`);
+  b.classList.add("spin");
+  while (syncing) await new Promise(r => setTimeout(r, 200)); // une synchro en cours finit d'abord (45 s au plus)
+  const got = await cloudPull(true);
+  b.classList.remove("spin"); b.classList.add("wait");
+  clearTimeout(pullT); pullT = setTimeout(() => b.classList.remove("wait"), PULL_WAIT);
+  if (got === null) toast("Pas de connexion au serveur : réessaie plus tard");
+  else if (!got) toast("Rien de nouveau de ton assistant");
+}
 // Ce que l'assistant a déposé pour l'appli
 function handleInbox(items) {
   let week = false; const msgs = [];
@@ -135,6 +172,7 @@ function handleInbox(items) {
       if (kind === "recipe") {
         for (const [k, a] of Object.entries(d.recipe.alim || {})) { S.alim[k] ||= a; AL[k] ||= a; }
         S.lib[d.id] = d.recipe; if (d.shared) { S.pubs[d.id] = 1; PUB[d.id] = d.recipe; }
+        markFresh(d.id);
         msgs.push("nouvelle recette « " + d.recipe.nom + " »");
       } else if (kind === "goals") { S.cfg = { ...(S.cfg || {}), ...d }; applyCfg(); msgs.push("objectifs mis à jour"); }
       else if (kind === "food") {
@@ -169,6 +207,7 @@ function showProposal() {
       if (!semaine.length) return toast("Aucune recette connue dans cette proposition");
       for (const i of items) if (!D.recettes[i.recette] && !S.lib[i.recette]) keep(i.recette); // gardée même si elle quitte le catalogue
       if (p.goal) S.goal = p.goal;
+      for (const i of items) markFresh(i.recette);
       delete S.proposal; closeSheet(); startWeek(semaine, buildCourses(semaine));
     };
   });
@@ -221,8 +260,8 @@ function sheetAssistant() {
     <p class="sub">Pour ça, l'appli doit envoyer une <b>copie de tes données</b> (journal, placard, semaine, notes, recettes, sans les photos) sur le serveur, rangée sous ton code personnel. Sans cette option, rien de personnel ne quitte ton téléphone. Tu peux tout effacer du serveur quand tu veux.</p>
     <button class="primary wide" id="aon">Activer</button>`, () => {
     $("#aon").onclick = async () => {
-      S.sync = true; rawSave(); toast("Envoi de tes données…"); await cloudSync();
-      if (!lastSync) { S.sync = false; rawSave(); return toast("Pas de réseau : réessaie plus tard"); }
+      S.sync = true; rawSave(); syncBtn(); toast("Envoi de tes données…"); await cloudSync();
+      if (!lastSync) { S.sync = false; rawSave(); syncBtn(); return toast("Pas de réseau : réessaie plus tard"); }
       sheetAssistant();
     };
   });
@@ -238,7 +277,7 @@ function sheetAssistant() {
     $("#mcopy").onclick = async () => { try { await navigator.clipboard.writeText(mcpUrl()); toast("Lien copié"); } catch { $("#murl").select(); toast("Sélectionné : copie-le"); } };
     $("#anow").onclick = async () => { const t = lastSync; await cloudSync(); toast(lastSync !== t ? "Données envoyées ✓" : "Envoi impossible (réseau ?)"); if (lastSync !== t && $("#anow")) sheetAssistant(); };
     const wipe = async () => { try { await cloudFetch("/api/sync", "DELETE"); return true; } catch { toast("Pas de réseau : réessaie plus tard"); return false; } };
-    $("#aoff").onclick = async () => { if (confirm("Effacer tes données du serveur ? L'assistant n'y aura plus accès. Rien ne change sur ton téléphone.") && await wipe()) { S.sync = false; rawSave(); closeSheet(); toast("Effacé du serveur"); } };
+    $("#aoff").onclick = async () => { if (confirm("Effacer tes données du serveur ? L'assistant n'y aura plus accès. Rien ne change sur ton téléphone.") && await wipe()) { S.sync = false; rawSave(); syncBtn(); closeSheet(); toast("Effacé du serveur"); } };
     $("#anew").onclick = async () => {
       if (!confirm("Créer un nouveau code ? Il faudra remettre le nouveau lien dans ton assistant.") || !await wipe()) return;
       try { localStorage.setItem(UID_KEY, UID = newUid()); } catch {}

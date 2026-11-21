@@ -181,13 +181,23 @@ function sessionTotals(id) {
 
 // ---- Onglet Recettes ----
 const R = { q: "", f: "toutes", sort: "recent", t: "" }; // t : étiquette filtrée dans la bibliothèque
+// Recettes qui viennent d'arriver (envoyées par l'assistant, ou semaine proposée lancée) : elles glissent vers la droite
+// la première fois qu'on les voit, l'une après l'autre. Valeur = rang d'arrivée.
+const FRESH = new Map();
+const markFresh = id => { if (!FRESH.has(id)) FRESH.set(id, FRESH.size); };
+function freshAttr(id) {
+  if (!FRESH.has(id)) return "";
+  const d = FRESH.get(id) * 90;
+  setTimeout(() => FRESH.delete(id), 600 + d); // une seule fois : les affichages suivants ne rejouent pas l'animation
+  return ` arrive" style="animation-delay:${d}ms`;
+}
 function recipeCard(id, extra = "") {
   const r = getR(id), st = stats(id);
   // Portions : celles prévues au plan de la semaine si la recette y est, sinon celles pour lesquelles elle est écrite
   const plan = D.semaine.filter(d => d.recette === id).length, n = r.n || 1, pl = x => x + " portion" + (x > 1 ? "s" : "");
   const por = plan ? `<span class="por">${pl(plan)} prévue${plan > 1 ? "s" : ""}</span>${plan !== n ? ` (recette pour ${n})` : ""}` : `pour ${pl(n)}`;
   const bits = [por, r.temps, st.n ? `fait ${st.n}×` : "", st.min ? `⏱ ${durTxt(st.min)}` : "", st.prix ? `≈ ${euro(st.prix)}` : "", st.stars ? `<span class="stars">${stars(st.stars)}</span>` : ""].filter(Boolean);
-  return `<div class="card" data-r="${esc(id)}"><span class="emo">${r.emoji || "🍽️"}</span>
+  return `<div class="card${freshAttr(id)}" data-r="${esc(id)}"><span class="emo">${r.emoji || "🍽️"}</span>
     <span class="grow"><b>${esc(r.nom)}</b><span class="sub">${tagHTML(id)}${PUB[id] ? "🌍 " : ""}${extra || bits.join(" · ")}</span></span>
     <button class="fav ${isFav(id) ? "on" : ""}" data-fav="${esc(id)}" aria-label="Favori">${isFav(id) ? "❤️" : "♡"}</button></div>`;
 }

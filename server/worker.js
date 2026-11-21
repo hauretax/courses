@@ -127,6 +127,14 @@ async function api(req, env, path) {
     return r.meta.changes ? json({ ok: true }) : fail(404, "recette introuvable ou pas la tienne");
   }
 
+  // Lecture légère de ce que l'assistant a déposé (au retour dans l'appli, ou bouton 🔄) : rien n'est écrit,
+  // l'accusé de réception part avec la synchro suivante (PUT /api/sync)
+  if (path === "/api/inbox" && m === "GET") {
+    if (!uidOk(uid)) return fail(401, "code personnel manquant");
+    const { results } = await env.DB.prepare("SELECT id, kind, data FROM inbox WHERE uh = ? ORDER BY id LIMIT 50").bind(await sha(uid)).all();
+    return json({ inbox: results.map(x => ({ id: x.id, kind: x.kind, data: JSON.parse(x.data) })) }, 200, { "cache-control": "no-store" });
+  }
+
   if (path === "/api/sync") {
     if (!uidOk(uid)) return fail(401, "code personnel manquant");
     const uh = await sha(uid);

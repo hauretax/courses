@@ -265,6 +265,5 @@ document.querySelectorAll("nav button").forEach(b => b.onclick = () => { S.tab =
 rollWeek(); // ici et pas plus haut : utilise dateKey, défini au milieu de ce fichier
 render();
 startCloud();
-startCloud();
 
 if (!NATIVE && location.protocol.startsWith("http") && "serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});

@@ -234,6 +234,17 @@ window.addEventListener("load", () => {
       must(!S.proposal && D.semaine.length === 9 && S.goal === 9, "semaine non lancée : " + D.semaine.length);
       must(D.courses.flatMap(r => r.items).some(i => i[0] === "g_atofu" && i[4] === 400), "courses : tofu absent ou mal compté");
     });
+    await A("assistant : 🔄 (hors ligne : message clair, puis 15 s d'attente) et recette reçue qui glisse", async () => {
+      must(q("#sync").hidden, "🔄 visible alors que l'assistant n'est pas connecté");
+      S.sync = true; syncBtn(); must(!q("#sync").hidden, "🔄 absent une fois l'assistant connecté");
+      lastPull = 0; await pullNow();
+      must(/connexion/.test(q("#toast").textContent) && q("#sync").classList.contains("wait"), "hors ligne : " + q("#toast").textContent);
+      await pullNow(); must(/réessaie dans 1[45] s/.test(q("#toast").textContent), "attente de 15 s non respectée : " + q("#toast").textContent);
+      handleInbox([{ id: 9, kind: "recipe", data: { id: "rbot2", recipe: { nom: "Compote", emoji: "🍏", n: 1, temps: "5 min", types: ["dessert"], ingredients: [[150, "g", "pomme"]], etapes: ["Cuire."] } } }]);
+      closeSheet(); S.tab = "recettes"; R.f = "miennes"; render();
+      must(q('#libl .card.arrive[data-r="rbot2"]'), "la recette reçue ne glisse pas");
+      S.sync = false; syncBtn(); lastPull = 0; R.f = "toutes";
+    });
     await A("recettes de la communauté : visibles, filtrables, partage réservé aux siennes", async () => {
       setCatalog({ pubx: { nom: "Gratin partagé", emoji: "🧀", n: 2, temps: "30 min", kcal: 400, prot: 20, ingredients: [[300, "g", "pdt"]], etapes: ["Cuire."] }, chili: { nom: "Faux chili", ingredients: [], etapes: [] } });
       must(getR("pubx") && allIds().includes("pubx") && getR("chili").nom !== "Faux chili", "catalogue mal fusionné");

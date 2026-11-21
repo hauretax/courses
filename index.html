@@ -309,6 +309,16 @@ a{color:var(--accent)}
 /* Réglages, partage */
 #gear{position:absolute;right:8px;top:8px;border:0;background:none;font-size:20px;padding:6px 8px;z-index:1}
 body>header h1{padding-right:40px}
+/* 🔄 : aller chercher ce que l'assistant a envoyé (une fois toutes les 15 s) */
+#sync{position:absolute;right:46px;top:9px;border:0;background:none;font-size:18px;line-height:1.2;padding:6px 8px;z-index:1}
+#sync.spin{animation:spin .9s linear infinite}
+#sync.wait{opacity:.35}
+@keyframes spin{to{transform:rotate(360deg)}}
+body>header:has(#sync:not([hidden])) h1{padding-right:80px}
+/* Recettes qui arrivent : elles glissent vers la droite, l'une après l'autre */
+.card.arrive{animation:arrive .55s cubic-bezier(.2,.8,.2,1) both}
+@keyframes arrive{from{opacity:0;transform:translateX(-48px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.card.arrive,#sync.spin{animation:none}}
 .sharerow{display:flex;align-items:center;gap:10px;margin-top:12px;font-size:15px}
 .sharerow input{width:22px!important;height:22px;flex:none}
 .sheetbox label.sub{display:flex;flex-direction:column;gap:4px;flex:1}
@@ -318,6 +328,7 @@ body>header h1{padding-right:40px}
 <body>
 <header>
   <button id="gear" aria-label="Réglages">⚙️</button>
+  <button id="sync" aria-label="Récupérer ce que l'assistant a envoyé" hidden>🔄</button>
   <h1 id="title"></h1>
   <div class="sub" id="subtitle"></div>
   <div class="bar"><i id="progress" style="width:0"></i></div>
