@@ -38,6 +38,27 @@ function pantryItem(nom, k, g) {
   const a = AL[k], pc = a && a.pc >= 20, base = { id: pid(), exp: null, at: new Date().toISOString() };
   return a ? { ...base, k, q: pc ? Math.max(1, Math.round(g / a.pc)) : g, u: pc ? "pc" : "g", loc: a.loc } : { ...base, nom, q: 1, u: "x", loc: "placard" };
 }
+// Un produit dont on connaît l'aliment mais pas la quantité reste « sans quantité » (il compte comme présent, pas dans les grammes)
+function productOf(nom, k, g) {
+  if (!k || !AL[k]) return pantryItem(nom);
+  return g > 0 ? pantryItem(nom, k, g) : { ...pantryItem(nom), k, loc: AL[k].loc || "placard" };
+}
+// Produits envoyés par l'assistant (ex. d'après une photo du frigo) : au placard, et retirés de la liste de courses s'ils y étaient
+function addToPantry(items) {
+  const list = groups().flatMap(r => r.items).filter(i => !S.checked[i.id] && !(S.have || {})[i.id]);
+  let n = 0;
+  for (const i of items || []) {
+    const nom = String(i.nom || "").trim(); if (!nom) continue;
+    const k = i.k && AL[i.k] ? i.k : keyOfName(nom), a = AL[k] || {};
+    const g = i.u === "pc" && a.pc ? i.q * a.pc : i.u === "g" ? i.q : 0;
+    const p = { ...productOf(nom, k, g), ...(LOCS.some(l => l[0] === i.loc) ? { loc: i.loc } : {}), ...(i.exp ? { exp: i.exp } : {}) };
+    if (!k && i.q > 1) p.q = i.q;
+    S.pantry.push(p); n++;
+    const li = list.find(x => k ? (x.extra ? keyOfName(x.nom) : x.id.slice(2)) === k : normTxt(x.nom) === normTxt(nom));
+    if (li) { S.have ||= {}; S.have[li.id] = p.id; }
+  }
+  return n;
+}
 // « Déjà au placard » sur un article de la liste : il sort des courses sans passer par le panier, et entre au placard
 // avec la quantité prévue (pour que les recettes la retirent ensuite). S.have garde le produit créé, pour pouvoir annuler.
 function haveItem(id) {

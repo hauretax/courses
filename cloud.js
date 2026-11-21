@@ -114,7 +114,9 @@ function buildView() {
       cuisine: S.cooks.filter(c => new Date(c.end) >= ws).map(c => ({ id: c.id, nom: c.nom, le: c.end.slice(0, 10), portions: c.portions || c.n, mange_pct: safe(() => dishPct(c), 0),
         kcal_portion: c.kcalP, prot_portion: c.protP, duree_min: c.min, ...(c.prix ? { cout: c.prix } : {}) })) },
     shopping: safe(() => groups().map(r => ({ rayon: r.rayon, articles: r.items.filter(i => !S.checked[i.id]).map(i => i.nom + (i.qte ? " : " + i.qte : "")) })).filter(r => r.articles.length), []),
-    pantry: S.pantry.map(p => ({ nom: pName(p), quantite: pQty(p), lieu: p.loc, ...(p.exp ? { limite: p.exp } : {}) })),
+    pantry: S.pantry.map(p => ({ nom: pName(p), quantite: pQty(p), lieu: p.loc, ...(p.exp ? { limite: p.exp } : {}), ...(p.k ? { cle: p.k } : {}) })),
+    extras: S.extras.map(x => ({ nom: x.nom, ...(x.qte ? { quantite: x.qte } : {}), achete: !!(S.checked[x.id] || S.stored[x.id]) })),
+    canMake: safe(() => canMake(15).map(x => ({ id: x.id, nom: getR(x.id).nom, on_a: x.got.map(k => (AL[k] || {}).n || k), il_manque: x.miss.map(k => (AL[k] || {}).n || k) })), []),
     dishes: S.plats.map(p => ({ nom: p.nom, portions: p.n, lieu: p.loc, a_manger_avant: platExp(p), kcal_portion: p.kcalP, ...(p.rid ? { id_recette: p.rid } : {}) })),
     ratings: Object.entries(S.notes).filter(([id]) => getR(id)).map(([id, n]) => ({ id, nom: getR(id).nom, stars: n.stars, tags: n.tags, txt: n.txt, fois_cuisine: cooksOf(id).length })),
     favs: Object.keys(S.favs).filter(getR).map(id => ({ id, nom: getR(id).nom })),
@@ -133,6 +135,21 @@ async function cloudSync() {
     const todo = (j.inbox || []).filter(m => !S.acks.includes(m.id));
     if (todo.length) handleInbox(todo); else rawSave();
   } catch {} finally { syncing = false; }
+  if (lastSync && S.tickets.some(t => t.ai === "todo")) sendTickets();
+}
+// Photos des tickets à faire lire par l'assistant : envoyées une par une ; sans réseau, on réessaie à la synchro suivante
+let sendingTk = false;
+async function sendTickets() {
+  if (sendingTk || !S.sync) return; sendingTk = true;
+  try {
+    for (const t of S.tickets.filter(t => t.ai === "todo")) {
+      const photos = await tkPhotos(t.id).catch(() => []);
+      if (!photos.length) { delete t.ai; continue; }
+      await cloudFetch("/api/receipts/" + t.id, "DELETE");
+      for (let n = 0; n < photos.length; n++) await cloudFetch(`/api/receipts/${t.id}/${n}`, "PUT", { at: t.at, photo: photos[n] });
+      t.ai = "sent"; rawSave();
+    }
+  } catch {} finally { sendingTk = false; }
 }
 // Lecture légère de ce que l'assistant a déposé, sans renvoyer toutes les données : c'est ce qui rend l'arrivée rapide.
 // Renvoie le nombre d'éléments reçus, ou null si le serveur n'a pas répondu.
@@ -180,6 +197,24 @@ function handleInbox(items) {
         const h = new Date(at).getHours();
         S.food.push({ nom: d.nom, kcal: d.kcal, prot: d.prot, meal: d.meal || (h < 10.5 ? "petitdej" : h < 15 ? "dejeuner" : h < 18 ? "collation" : "diner"), at });
         msgs.push("+ " + d.kcal + " kcal au journal");
+      } else if (kind === "items") { // articles hors recettes ajoutés à la liste
+        let n = 0;
+        for (const it of d.items || []) {
+          const nom = String(it.nom || "").trim();
+          if (!nom || groups().some(r => r.items.some(i => !S.checked[i.id] && normTxt(i.nom) === normTxt(nom)))) continue; // déjà dans la liste
+          S.extras.push({ id: "x" + Date.now().toString(36) + n, nom, qte: it.qte || "", rayon: RAY_ORDER.includes(it.rayon) ? it.rayon : "Divers" });
+          n++;
+        }
+        if (n) msgs.push(`${n} article${n > 1 ? "s" : ""} ajouté${n > 1 ? "s" : ""} à la liste`);
+      } else if (kind === "swap") { // variante d'une recette (ingrédient remplacé) : elle prend la place de l'originale dans la semaine
+        for (const [k, a] of Object.entries(d.recipe.alim || {})) { S.alim[k] ||= a; AL[k] ||= a; }
+        S.lib[d.id] = d.recipe; markFresh(d.id);
+        msgs.push(`${d.label} : « ${d.recipe.nom} »${swapInWeek(d.from, d.id) ? ", liste de courses mise à jour" : ""}`);
+      } else if (kind === "pantry") {
+        const n = addToPantry(d.items);
+        if (n) msgs.push(`${n} produit${n > 1 ? "s" : ""} au placard`);
+      } else if (kind === "receipt") {
+        msgs.push(applyReceipt(d));
       } else if (kind === "week") {
         for (const [rid, r] of Object.entries(d.recipes || {})) if (!getR(rid)) { PUB[rid] = r; mergeAlim(r); }
         S.proposal = { items: d.items, goal: d.goal, note: d.note }; week = true;
@@ -256,8 +291,8 @@ function sheetSettings() {
 const mcpUrl = () => `${API}/mcp/${UID}`;
 function sheetAssistant() {
   if (!S.sync) return openSheet(`<h3>🤖 Connecter un assistant</h3>
-    <p class="sub">Un assistant (Claude, ChatGPT…) peut te préparer ta semaine : il connaît les recettes disponibles, ce que tu as au placard, ce que tu as mangé et les plats que tu as aimés. Il peut te proposer une semaine, créer des recettes et noter un repas dans ton journal.</p>
-    <p class="sub">Pour ça, l'appli doit envoyer une <b>copie de tes données</b> (journal, placard, semaine, notes, recettes, sans les photos) sur le serveur, rangée sous ton code personnel. Sans cette option, rien de personnel ne quitte ton téléphone. Tu peux tout effacer du serveur quand tu veux.</p>
+    <p class="sub">Un assistant (Claude, ChatGPT…) peut te préparer ta semaine : il connaît les recettes disponibles, ce que tu as au placard, ce que tu as mangé et les plats que tu as aimés. Il peut te proposer une semaine, créer des recettes, remplacer un ingrédient qui manque au magasin, ajouter des articles à ta liste, lire tes tickets de caisse et noter un repas dans ton journal.</p>
+    <p class="sub">Pour ça, l'appli doit envoyer une <b>copie de tes données</b> (journal, placard, semaine, notes, recettes, et les photos de tes tickets de caisse pour qu'il les lise ; pas les photos de tes plats) sur le serveur, rangée sous ton code personnel. Sans cette option, rien de personnel ne quitte ton téléphone. Tu peux tout effacer du serveur quand tu veux.</p>
     <button class="primary wide" id="aon">Activer</button>`, () => {
     $("#aon").onclick = async () => {
       S.sync = true; rawSave(); syncBtn(); toast("Envoi de tes données…"); await cloudSync();

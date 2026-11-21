@@ -102,6 +102,35 @@ function buildCourses(semaine) {
   for (const t of frees) add("Épices", [`t_${slug(t)}`, cap(t), "", null, 0]); // « sel, poivre, 1/2 citron » : à vérifier chez soi
   return RAY_ORDER.filter(r => groups[r]).map(r => ({ rayon: r, items: groups[r] }));
 }
+// Une recette de la semaine remplacée par une autre (ex. variante sans poivron, envoyée par l'assistant) : seuls les articles
+// touchés par le changement bougent dans la liste ; le reste (cases cochées, déjà au placard, ajouts à la main) ne change pas.
+function swapInWeek(from, to) {
+  const sem = S.plan && S.plan.semaine;
+  if (!sem || !sem.some(d => d.recette === from || (d.avec || []).some(x => x.rid === from))) return false;
+  const before = sem.map(d => ({ ...d, avec: d.avec && d.avec.map(x => ({ ...x })) }));
+  for (const d of sem) { if (d.recette === from) d.recette = to; for (const x of d.avec || []) if (x.rid === from) x.rid = to; }
+  patchCourses(before, sem);
+  return true;
+}
+function patchCourses(oldSem, newSem) {
+  const flat = c => Object.fromEntries(c.flatMap(r => r.items.map(i => [i[0], [r.rayon, i]])));
+  const a = flat(buildCourses(oldSem)), b = flat(buildCourses(newSem)), kept = id => S.checked[id] || S.stored[id] || (S.have || {})[id];
+  let cur = S.plan.courses.map(r => ({ ...r, items: r.items.filter(i => b[i[0]] || !a[i[0]] || kept(i[0])) })); // plus besoin : retiré (sauf déjà acheté)
+  for (const [id, [ray, it]] of Object.entries(b)) {
+    if (a[id] && a[id][1][4] === it[4]) continue; // quantité inchangée
+    const r0 = cur.find(r => r.items.some(i => i[0] === id));
+    if (r0) {
+      if (S.checked[id] && it[4] > (r0.items.find(i => i[0] === id)[4] || 0) && !S.stored[id]) delete S.checked[id]; // il en faut plus : à reprendre
+      r0.items = r0.items.map(i => i[0] === id ? it : i);
+    } else {
+      let r = cur.find(r => r.rayon === ray);
+      if (!r) cur.push(r = { rayon: ray, items: [] });
+      r.items.push(it);
+    }
+  }
+  cur = cur.filter(r => r.items.length).sort((x, y) => RAY_ORDER.indexOf(x.rayon) - RAY_ORDER.indexOf(y.rayon));
+  S.plan.courses = D.courses = cur;
+}
 // Changement de semaine (chaque samedi) : les repas validés la semaine d'avant partent dans le journal (figés)
 // et les compteurs « mangé » repartent de zéro. Sans ça, les repas restaient « Finis » d'une semaine sur l'autre.
 function rollWeek() {

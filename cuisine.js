@@ -201,6 +201,39 @@ function recipeCard(id, extra = "") {
     <span class="grow"><b>${esc(r.nom)}</b><span class="sub">${tagHTML(id)}${PUB[id] ? "🌍 " : ""}${extra || bits.join(" · ")}</span></span>
     <button class="fav ${isFav(id) ? "on" : ""}" data-fav="${esc(id)}" aria-label="Favori">${isFav(id) ? "❤️" : "♡"}</button></div>`;
 }
+// ---- « Avec ce que tu as » : recettes faisables avec le placard et les articles ajoutés à la main à la liste (ex. de la feta) ----
+const normTxt = s => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+// Un nom libre (« Feta AOP », « poivrons rouges ») → l'aliment connu dont le nom y figure en entier
+function keyOfName(nom) {
+  const n = ` ${normTxt(nom)} `; let best = null, len = 0;
+  for (const [k, a] of Object.entries(AL)) for (const x of [a.n, a.np]) {
+    const y = normTxt(x); if (y.length >= 3 && y.length > len && n.includes(` ${y} `)) { best = k; len = y.length; }
+  }
+  return best;
+}
+function canMake(limit = 5) {
+  const have = {}, extra = {};
+  for (const p of S.pantry) { const k = p.k || keyOfName(p.nom); if (k && (p.u === "x" || p.q > 0)) have[k] = 1; }
+  for (const x of S.extras) { const k = keyOfName(x.nom); if (k) extra[k] = x.nom; }
+  const week = new Set(weekIds()), out = [];
+  for (const id of allIds()) {
+    if (week.has(id)) continue; // déjà prévue cette semaine
+    // Les ingrédients qui comptent : pas les épices ni les petites quantités (huile, sel…)
+    const main = curIngs(id, true).filter(g => !g.free && g.k && gramsOf(g) >= 30 && rayOf(g.k) !== "Épices");
+    if (main.length < 2) continue;
+    const got = main.filter(g => have[g.k] || extra[g.k]), miss = main.filter(g => !have[g.k] && !extra[g.k]);
+    const withExtra = got.some(g => extra[g.k]), part = got.length / main.length;
+    if (part >= .5 || withExtra) out.push({ id, got: got.map(g => g.k), miss: miss.map(g => g.k), score: part + (withExtra ? .6 : 0) });
+  }
+  return out.sort((a, b) => b.score - a.score || a.miss.length - b.miss.length).slice(0, limit);
+}
+function canMakeHTML() {
+  const list = canMake(), lost = S.extras.filter(x => !keyOfName(x.nom) && !S.checked[x.id]).length; // ajouts que l'appli ne sait pas cuisiner
+  const nm = k => (AL[k] || {}).n || k;
+  if (!list.length && !(S.sync && S.extras.length)) return "";
+  return `<h2>🧺 Avec ce que tu as</h2>` + list.map(x => recipeCard(x.id, `✓ ${x.got.map(nm).join(", ")}${x.miss.length ? ` · il manque ${x.miss.map(nm).join(", ")}` : " · tout y est"}`)).join("")
+    + (S.sync ? `<p class="sub">${!list.length ? "Aucune recette avec ce que tu as. " : lost ? "Pas de recette pour tous tes ajouts. " : ""}Demande à ton assistant : « une recette avec ce que j'ai ».</p>` : "");
+}
 function renderRecettes() {
   const week = weekIds(), todo = week.filter(id => !doneThisWeek(id)), done = week.filter(doneThisWeek);
   setHeader(!week.length ? "Aucune semaine en cours" : todo.length ? `${todo.length} recette${todo.length > 1 ? "s" : ""} à faire cette semaine` : "Tout est cuisiné cette semaine 🎉", week.length ? done.length / week.length : null);
@@ -210,11 +243,12 @@ function renderRecettes() {
     return `<div class="card done" data-r="${esc(id)}"><span class="emo">${getR(id).emoji}</span><span class="grow"><b>${esc(getR(id).nom)}</b>
       <span class="sub">✓ ${fmtDate(c.end)} ${fmtTime(c.end)} · ⏱ ${durTxt(c.min)}${c.stars ? ` · <span class="stars">${stars(c.stars)}</span>` : ""}</span></span></div>`;
   }).join("");
+  h += canMakeHTML();
   h += `<button class="wide" id="newrec" style="margin-top:14px">＋ Ajouter une recette (la tienne, celle d'un proche…)</button>
     <button class="more" id="more"><span>Plus de recettes</span><i>⌄</i></button>
     <section id="lib" class="lib">
       <form class="search" id="rform" onsubmit="return false"><input id="rq" type="search" placeholder="Chercher une recette ou un ingrédient…" value="${esc(R.q)}" autocomplete="off"></form>
-      <div class="chips" id="rf">${[["toutes", "Toutes"], ["favs", "❤️ Favoris"], ["pub", "🌍 Communauté"], ["miennes", "✍️ Les miennes"], ["pub", "🌍 Communauté"], ["miennes", "✍️ Les miennes"], ["faites", "🕓 Déjà faites"], ["notees", "⭐ Notées"]]
+      <div class="chips" id="rf">${[["toutes", "Toutes"], ["favs", "❤️ Favoris"], ["pub", "🌍 Communauté"], ["miennes", "✍️ Les miennes"], ["faites", "🕓 Déjà faites"], ["notees", "⭐ Notées"]]
         .map(([k, l]) => `<button data-f="${k}" class="${R.f === k ? "cur" : ""}">${l}</button>`).join("")}</div>
       <div class="chips" id="rt">${Object.entries(TYPES).map(([t, [e, n]]) => `<button data-t="${t}" class="${R.t === t ? "cur" : ""}">${e} ${n}</button>`).join("")}</div>
       <label class="sortrow">Trier par <select id="rs">${[["recent", "Faites récemment"], ["souvent", "Faites le plus souvent"], ["rapide", "Les plus rapides"], ["prix", "Les moins chères"], ["note", "Les mieux notées"], ["nom", "Nom"]]
@@ -233,7 +267,6 @@ function renderRecettes() {
   $("#rs").onchange = e => { R.sort = e.target.value; drawLib(); };
   $("#view").onclick = e => {
     if (e.target.closest("#newrec")) return openRecipeForm();
-    if (e.target.closest("#startweek")) return openPlanner();
     if (e.target.closest("#startweek")) return openPlanner();
     const ty = e.target.closest("[data-t]");
     if (ty) { R.t = R.t === ty.dataset.t ? "" : ty.dataset.t; document.querySelectorAll("#rt button").forEach(b => b.classList.toggle("cur", b.dataset.t === R.t)); return drawLib(); }
@@ -260,8 +293,6 @@ function drawLib() {
     let ids = allIds().filter(match);
     if (R.t) ids = ids.filter(id => typesOf(id).includes(R.t));
     if (R.f === "favs") ids = ids.filter(isFav);
-    if (R.f === "pub") ids = ids.filter(id => PUB[id]);
-    if (R.f === "miennes") ids = ids.filter(isMine);
     if (R.f === "pub") ids = ids.filter(id => PUB[id]);
     if (R.f === "miennes") ids = ids.filter(isMine);
     if (R.f === "notees") ids = ids.filter(id => (S.notes[id] || {}).stars);

@@ -135,6 +135,23 @@ async function api(req, env, path) {
     return json({ inbox: results.map(x => ({ id: x.id, kind: x.kind, data: JSON.parse(x.data) })) }, 200, { "cache-control": "no-store" });
   }
 
+  // Photos des tickets de caisse, pour que l'assistant les lise (seulement avec « Connecter un assistant ») : une ligne par photo
+  const rc = path.match(/^\/api\/receipts\/([a-z0-9]{2,20})(?:\/(\d{1,2}))?$/);
+  if (rc) {
+    if (!uidOk(uid)) return fail(401, "code personnel manquant");
+    const uh = await sha(uid);
+    if (m === "DELETE" && !rc[2]) { await env.DB.prepare("DELETE FROM receipts WHERE uh = ? AND id = ?").bind(uh, rc[1]).run(); return json({ ok: true }); }
+    if (m === "PUT" && rc[2]) {
+      const b = await readBody(req, 3_000_000), photo = String(b.photo || "");
+      if (!/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(photo)) return fail(400, "photo invalide");
+      const c = await env.DB.prepare("SELECT COUNT(*) AS n FROM receipts WHERE uh = ? AND id != ?").bind(uh, rc[1]).first();
+      if (c.n >= 40) return fail(400, "trop de photos de tickets en attente : fais lire ou supprime les anciens");
+      await env.DB.prepare(`INSERT INTO receipts (uh, id, n, at, photo, created) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        ON CONFLICT(uh, id, n) DO UPDATE SET at = ?4, photo = ?5, created = ?6`).bind(uh, rc[1], +rc[2], str(b.at, 40), photo, Date.now()).run();
+      return json({ ok: true });
+    }
+  }
+
   if (path === "/api/sync") {
     if (!uidOk(uid)) return fail(401, "code personnel manquant");
     const uh = await sha(uid);
@@ -143,7 +160,8 @@ async function api(req, env, path) {
       return u ? json({ backup: JSON.parse(u.backup || "null"), updated: u.updated }) : fail(404, "aucune donnée pour ce code");
     }
     if (m === "DELETE") {
-      await env.DB.batch([env.DB.prepare("DELETE FROM users WHERE uh = ?").bind(uh), env.DB.prepare("DELETE FROM inbox WHERE uh = ?").bind(uh)]);
+      await env.DB.batch([env.DB.prepare("DELETE FROM users WHERE uh = ?").bind(uh), env.DB.prepare("DELETE FROM inbox WHERE uh = ?").bind(uh),
+        env.DB.prepare("DELETE FROM receipts WHERE uh = ?").bind(uh)]);
       return json({ ok: true });
     }
     if (m === "PUT") {
@@ -163,13 +181,20 @@ async function api(req, env, path) {
 const INSTRUCTIONS = `Tu es relié à l'appli « Courses & recettes » d'une personne : liste de courses, recettes avec mode cuisine, placard, journal des calories et protéines.
 Tu lis une copie de ses données, envoyée par son appli (get_profile indique de quand elle date). Ce que tu écris (recette, semaine proposée, objectifs, aliment mangé) arrive dans son appli à sa prochaine ouverture ; une semaine proposée n'est lancée que si la personne l'accepte dans l'appli.
 Pour préparer une semaine : get_profile (objectifs, goûts, notes), get_pantry (ce qu'il y a déjà, à utiliser d'abord), search_recipes, puis propose_week. S'il manque une recette, crée-la avec create_recipe (après list_foods pour utiliser les aliments connus : c'est ce qui permet le calcul des calories et la liste de courses).
+Pour une idée de repas avec ce qu'il y a : get_pantry (placard, articles ajoutés à la main à la liste, recettes déjà faisables) ; si rien ne va, crée une recette.
+Il manque un ingrédient au magasin : replace_ingredient (une variante de la recette prend sa place dans la semaine, la liste se met à jour). Un article hors recette (dentifrice, jambon…) : add_to_list.
+Une photo du frigo, du placard ou des courses : reconnais les produits puis add_to_pantry (avec la clé list_foods quand c'est un aliment connu).
+Ticket de caisse : read_receipt pour voir la photo, puis save_receipt avec chaque ligne (les prix servent au coût des recettes, les articles vont au placard).
 Un repas équilibré = une source de protéines + des légumes ; le féculent est facultatif. Les gens cuisinent souvent en grosses fournées : mieux vaut 3 ou 4 plats en plusieurs portions que 14 plats différents, sauf demande contraire. Parle français.`;
 
 const P = (type, description, extra = {}) => ({ type, description, ...extra });
+const NEW_FOOD = { type: "object", required: ["name", "kcal_100g", "prot_100g"], properties: {
+        name: P("string", "Nom au singulier"), plural: P("string", "Pluriel"), kcal_100g: P("number", ""), prot_100g: P("number", ""), piece_g: P("number", "Poids moyen d'une pièce, si ça se compte en pièces"),
+        storage: P("string", "Où ça se range", { enum: LOCS }), aisle: P("string", "Rayon", { enum: RAYS }), emoji: P("string", "") } };
 const TOOLS = [
   { name: "get_profile", description: "Objectifs quotidiens (kcal, protéines), nombre de repas à couvrir par semaine, recettes favorites, notes et commentaires laissés sur les plats cuisinés, date de la dernière synchronisation.", inputSchema: { type: "object", properties: {} } },
   { name: "get_journal", description: "Ce que la personne a mangé : total kcal et protéines par jour, avec le détail des repas.", inputSchema: { type: "object", properties: { days: P("integer", "Nombre de jours en arrière (défaut 7, max 60)") } } },
-  { name: "get_pantry", description: "Contenu du placard, du frigo et du congélateur (avec les dates limites) et les portions de plats déjà cuisinés mises de côté.", inputSchema: { type: "object", properties: {} } },
+  { name: "get_pantry", description: "Contenu du placard, du frigo et du congélateur (avec les dates limites), portions de plats déjà cuisinés mises de côté, articles ajoutés à la main à la liste de courses (envies du moment, ex. feta) et recettes déjà faisables avec tout ça (ce qu'on a, ce qui manque).", inputSchema: { type: "object", properties: {} } },
   { name: "get_week", description: "La semaine en cours : plats prévus et portions, plats déjà cuisinés et part mangée, liste de courses restante.", inputSchema: { type: "object", properties: {} } },
   { name: "search_recipes", description: "Cherche dans les recettes disponibles : recettes de base de l'appli, recettes partagées par la communauté et recettes personnelles. Renvoie un résumé (id, nom, étiquettes, portions, temps, kcal et protéines par portion, note personnelle).",
     inputSchema: { type: "object", properties: { query: P("string", "Mots à chercher dans le nom ou les ingrédients"), type: P("string", "Étiquette", { enum: TYPES }), max_kcal: P("number", "kcal max par portion"), min_prot: P("number", "Protéines min par portion (g)"), limit: P("integer", "Défaut 40") } } },
@@ -183,14 +208,35 @@ const TOOLS = [
         food: P("string", "Clé ou nom d'un aliment connu (list_foods), nom d'un aliment de new_foods, ou texte libre si qty est absent (ex. « sel, poivre »)"),
         qty: P("number", "Quantité"), unit: P("string", "g, pc (pièce), cc (c. à café), cs (c. à soupe)", { enum: UNITS }) } } }),
       steps: P("array", "Étapes, dans l'ordre", { items: { type: "object", required: ["text"], properties: { text: P("string", "Ce qu'il faut faire, avec les signes de cuisson à surveiller"), timer_min: P("number", "Minuteur en minutes, si utile") } } }),
-      new_foods: P("array", "Aliments absents de list_foods", { items: { type: "object", required: ["name", "kcal_100g", "prot_100g"], properties: {
-        name: P("string", "Nom au singulier"), plural: P("string", "Pluriel"), kcal_100g: P("number", ""), prot_100g: P("number", ""), piece_g: P("number", "Poids moyen d'une pièce, si ça se compte en pièces"),
-        storage: P("string", "Où ça se range", { enum: LOCS }), aisle: P("string", "Rayon", { enum: RAYS }), emoji: P("string", "") } } }),
+      new_foods: P("array", "Aliments absents de list_foods", { items: NEW_FOOD }),
       share: P("boolean", "true pour la publier aussi dans le catalogue public (seulement si la personne le demande)") } } },
   { name: "propose_week", description: "Propose le programme de la semaine : des recettes et un nombre de portions pour chacune. La personne voit la proposition dans son appli et l'accepte ou non ; la liste de courses est alors calculée, moins ce qu'elle a déjà.",
     inputSchema: { type: "object", required: ["items"], properties: {
       items: P("array", "Plats de la semaine", { items: { type: "object", required: ["recipe_id", "portions"], properties: { recipe_id: P("string", ""), portions: P("integer", "Portions à manger dans la semaine") } } }),
       meals: P("integer", "Nombre de repas à couvrir (défaut : celui du profil)"), note: P("string", "Un mot d'explication affiché avec la proposition") } } },
+  { name: "add_to_list", description: "Ajoute des articles à la liste de courses, hors recettes (dentifrice, pain de mie, jambon…). Ils arrivent dans l'appli à sa prochaine ouverture ; un article déjà dans la liste n'est pas ajouté deux fois.",
+    inputSchema: { type: "object", required: ["items"], properties: { items: P("array", "Articles", { items: { type: "object", required: ["name"], properties: {
+      name: P("string", "L'article, ex. « Gruyère râpé »"), qty: P("string", "Quantité, ex. « 2 paquets », « 500 g »"), aisle: P("string", "Rayon", { enum: RAYS }) } } }) } } },
+  { name: "add_to_pantry", description: "Ajoute des produits au placard, au frigo ou au congélateur de la personne, par exemple d'après une photo de son frigo ou de ses courses. Ils arrivent dans l'appli à sa prochaine ouverture ; un produit encore dans la liste de courses en sort.",
+    inputSchema: { type: "object", required: ["items"], properties: { items: P("array", "Produits", { items: { type: "object", required: ["name"], properties: {
+      name: P("string", "Le produit, en clair"), food: P("string", "Clé de l'aliment (list_foods) si c'en est un : c'est ce qui permet aux recettes de le retirer du placard"),
+      qty: P("number", "Quantité"), unit: P("string", "g ou pc (pièces, paquets…)", { enum: ["g", "pc"] }),
+      storage: P("string", "Où il est rangé (défaut : selon l'aliment)", { enum: LOCS }), expires: P("string", "Date limite AAAA-MM-JJ, si elle est lisible") } } }) } } },
+  { name: "replace_ingredient", description: "Remplace un ingrédient d'une recette (ex. plus de poivrons au magasin) en changeant le moins de choses possible : une variante de la recette est créée (l'originale ne change pas) avec ses calories recalculées et, si la recette est prévue cette semaine, la variante prend sa place et la liste de courses est mise à jour dans l'appli.",
+    inputSchema: { type: "object", required: ["recipe_id", "replace", "with"], properties: {
+      recipe_id: P("string", "Identifiant de la recette"), replace: P("string", "Clé ou nom de l'ingrédient à remplacer (voir get_recipe)"),
+      with: P("string", "Clé ou nom d'un aliment connu (list_foods), ou nom de l'aliment décrit dans new_food"),
+      qty: P("number", "Quantité du nouvel aliment pour la recette entière (défaut : la même que l'ancien)"), unit: P("string", "Unité de qty", { enum: UNITS }),
+      new_food: P("object", "Si l'aliment est absent de list_foods", NEW_FOOD) } } },
+  { name: "read_receipt", description: "Photos d'un ticket de caisse pris dans l'appli (le plus récent pas encore lu si receipt_id est absent), avec la liste de courses pour faire le lien. À lire puis à enregistrer avec save_receipt.",
+    inputSchema: { type: "object", properties: { receipt_id: P("string", "Identifiant du ticket (voir la liste renvoyée)") } } },
+  { name: "save_receipt", description: "Enregistre la lecture d'un ticket de caisse : chaque ligne avec son prix. Dans l'appli, les prix servent au coût des recettes et les articles achetés vont au placard (sauf to_pantry: false), cochés et rangés dans la liste de courses.",
+    inputSchema: { type: "object", required: ["receipt_id", "items"], properties: {
+      receipt_id: P("string", ""), store: P("string", "Magasin"), total: P("number", "Total payé (€)"),
+      items: P("array", "Lignes du ticket", { items: { type: "object", required: ["name", "price"], properties: {
+        name: P("string", "Article, en clair (« Feta AOP 200 g », pas « FETA AOP200G »)"), price: P("number", "Prix payé pour la ligne (€)"),
+        food: P("string", "Clé de l'aliment (list_foods) si c'en est un"), grams: P("number", "Poids total acheté en grammes, si connu (sert au prix au gramme)"),
+        to_pantry: P("boolean", "false pour ce qui ne se range pas au placard (sac, consigne…). Défaut : true") } } }) } } },
   { name: "set_goals", description: "Change les objectifs quotidiens de la personne.", inputSchema: { type: "object", properties: { kcal: P("number", "kcal par jour"), prot: P("number", "Protéines par jour (g)") } } },
   { name: "log_food", description: "Ajoute au journal quelque chose que la personne dit avoir mangé.", inputSchema: { type: "object", required: ["name", "kcal"], properties: {
     name: P("string", "Quoi"), kcal: P("number", ""), prot: P("number", "Protéines (g)"), meal: P("string", "Repas", { enum: MEALS }), at: P("string", "Date et heure ISO (défaut : maintenant)") } } }
@@ -224,7 +270,7 @@ async function callTool(env, uh, name, a) {
   switch (name) {
     case "get_profile": return { derniere_synchro: new Date(u.updated).toISOString(), objectifs: V.goals, favoris: V.favs, notes_des_plats: V.ratings, aujourd_hui: V.today };
     case "get_journal": { const n = Math.min(60, Math.max(1, +a.days || 7)); return { objectifs: V.goals, jours: (V.journal || []).slice(0, n) }; }
-    case "get_pantry": return { placard: V.pantry || [], plats_de_cote: V.dishes || [] };
+    case "get_pantry": return { placard: V.pantry || [], plats_de_cote: V.dishes || [], articles_ajoutes_a_la_liste: V.extras || [], recettes_faisables: V.canMake || [] };
     case "get_week": return { semaine: V.week || null, courses: V.shopping || [] };
     case "list_foods": {
       const q = norm(a.query), all = { ...AL, ...foods };
@@ -276,6 +322,90 @@ async function callTool(env, uh, name, a) {
       const tot = items.reduce((s, i) => ({ k: s.k + (all[i.recette].r.kcal || 0) * i.n, p: s.p + (all[i.recette].r.prot || 0) * i.n }), { k: 0, p: 0 });
       return { message: "Semaine proposée : la personne la verra à la prochaine ouverture de l'appli et pourra la lancer.", plats: items.map(i => `${i.n} × ${all[i.recette].r.nom}`), total_kcal: tot.k, total_prot: tot.p };
     }
+    case "add_to_list": {
+      const items = (Array.isArray(a.items) ? a.items : []).slice(0, 40).map(i => ({ nom: str(i && i.name, 80), qte: str(i && i.qty, 40), rayon: RAYS.includes(i && i.aisle) ? i.aisle : "Divers" })).filter(i => i.nom);
+      if (!items.length) throw new Error("items est vide");
+      await push("items", { items });
+      return { message: "Ajouté à la liste de courses : visible à la prochaine ouverture de l'appli.", articles: items.map(i => i.nom + (i.qte ? " : " + i.qte : "")) };
+    }
+    case "add_to_pantry": {
+      const items = (Array.isArray(a.items) ? a.items : []).slice(0, 60).map(i => ({ nom: str(i && i.name, 80),
+        ...(i.food && (AL[i.food] || foods[i.food]) ? { k: i.food } : {}), ...(+i.qty > 0 ? { q: Math.round(+i.qty * 100) / 100, u: i.unit === "pc" ? "pc" : "g" } : {}),
+        ...(LOCS.includes(i.storage) ? { loc: i.storage } : {}), ...(/^\d{4}-\d{2}-\d{2}$/.test(i.expires || "") ? { exp: i.expires } : {}) })).filter(i => i.nom);
+      if (!items.length) throw new Error("items est vide");
+      await push("pantry", { items });
+      return { message: "Ajouté au placard : visible à la prochaine ouverture de l'appli.", produits: items.map(i => i.nom) };
+    }
+    case "replace_ingredient": {
+      const x = (await allRecipes())[a.recipe_id]; if (!x) throw new Error("recette inconnue : " + a.recipe_id);
+      const r = x.r, known = { ...foods, ...(r.alim || {}) }, food = k => AL[k] || known[k];
+      const nameOf = (k, n = 1) => { const f = food(k) || {}; return n > 1 && f.np || f.n || k; };
+      // L'ingrédient à remplacer : par sa clé, sinon par son nom
+      const q = norm(a.replace), ings = r.ingredients.filter(Array.isArray);
+      const old = ings.find(g => g[2] === a.replace) || ings.find(g => [food(g[2]) && food(g[2]).n, food(g[2]) && food(g[2]).np].some(n => n && norm(n) === q))
+        || ings.find(g => norm(nameOf(g[2])).includes(q) || q.includes(norm(nameOf(g[2]))));
+      if (!old) throw new Error(`« ${a.replace} » n'est pas dans la recette. Ingrédients : ${ings.map(g => g[2] + " (" + nameOf(g[2]) + ")").join(", ")}`);
+      // Le nouvel aliment : connu, ou décrit dans new_food
+      const alim = { ...(r.alim || {}) };
+      let to = food(a.with) ? a.with : null;
+      if (!to) for (const [k, f] of Object.entries({ ...AL, ...known })) if (norm(f.n) === norm(a.with) || f.np && norm(f.np) === norm(a.with)) { to = k; break; }
+      if (!to && a.new_food) { const f = a.new_food; to = rid("a"); alim[to] = cleanAlim({ n: f.name, np: f.plural, k: f.kcal_100g, p: f.prot_100g, pc: f.piece_g, loc: f.storage, ray: f.aisle, e: f.emoji }); }
+      if (!to) throw new Error(`Aliment inconnu : « ${a.with} ». Utilise une clé de list_foods ou décris-le dans new_food.`);
+      if (!AL[to] && !alim[to]) alim[to] = known[to];
+      // Quantité : celle donnée, sinon la même (en pièces si les deux se comptent en pièces, sinon au même poids)
+      const nf = AL[to] || alim[to], of = food(old[2]) || {};
+      let ing;
+      if (+a.qty > 0) ing = [Math.round(+a.qty * 100) / 100, UNITS.includes(a.unit) ? a.unit : "g", to];
+      else if (old[1] !== "pc" || nf.pc) ing = [old[0], old[1], to];
+      else ing = [Math.round(old[0] * (of.pc || 100)), "g", to];
+      // Le texte change le moins possible : le nom de l'ancien aliment devient celui du nouveau dans le titre et les étapes
+      // On essaie le nom entier, puis de plus en plus court (« poivrons surgelés en lamelles » → « poivrons surgelés » → « poivrons »),
+      // tant qu'aucun autre ingrédient de la recette ne porte aussi ce mot
+      const others = ings.filter(g => g !== old).map(g => norm([(food(g[2]) || {}).n, (food(g[2]) || {}).np].join(" ")));
+      const forms = [];
+      for (const [o, n] of [[of.np, nf.np || nf.n], [of.n, nf.n]]) if (o) {
+        const w = o.split(/\s+/);
+        for (let i = w.length; i > 0; i--) { const f = w.slice(0, i).join(" "); if (f.length >= 4 && !others.some(x => x.includes(norm(f)))) forms.push([f, n]); }
+      }
+      forms.sort((x, y) => y[0].length - x[0].length);
+      const swapTxt = t => {
+        for (const [o, n] of forms) {
+          const re = new RegExp(`(^|[^\\p{L}])(${o.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})(?=[^\\p{L}]|$)`, "giu");
+          if (re.test(t)) return t.replace(re, (m0, pre, w) => pre + (w[0] === w[0].toUpperCase() ? n[0].toUpperCase() + n.slice(1) : n));
+        }
+        return t;
+      };
+      const nom0 = swapTxt(r.nom), nom = nom0 !== r.nom ? nom0 : `${r.nom} · avec ${nf.n}`;
+      const ingredients = r.ingredients.map(g => g === old ? ing : g);
+      const used = Object.fromEntries(Object.entries(alim).filter(([k]) => ingredients.some(g => Array.isArray(g) && g[2] === k)));
+      const recipe = cleanRecipe({ ...r, nom, ingredients, alim: used, etapes: r.etapes.map(e => typeof e === "string" ? swapTxt(e) : { ...e, t: swapTxt(e.t) }) });
+      const id = rid("r"), label = `${nameOf(old[2])} → ${nf.n}`;
+      await push("swap", { from: a.recipe_id, id, recipe, label });
+      return { id, nom: recipe.nom, changement: label, ingredient: ingText(ing, alim), avant: { kcal_portion: r.kcal ?? nutrition(r, known).kcal, prot_portion: r.prot ?? nutrition(r, known).prot },
+        apres: { kcal_portion: recipe.kcal, prot_portion: recipe.prot },
+        message: "Variante envoyée : à la prochaine ouverture de l'appli, elle remplace l'originale dans la semaine (si elle y est) et la liste de courses se met à jour." };
+    }
+    case "read_receipt": {
+      const { results } = await env.DB.prepare("SELECT id, n, at FROM receipts WHERE uh = ? ORDER BY created").bind(uh).all();
+      if (!results.length) throw new Error("Aucune photo de ticket en attente. Dans l'appli : 🧾 Tickets › ＋ Nouveau ticket › 📸, puis Enregistrer (avec « Connecter un assistant » activé).");
+      const tickets = {}; for (const t of results) (tickets[t.id] ||= { receipt_id: t.id, date: t.at, photos: 0 }).photos++;
+      const id = a.receipt_id || results[results.length - 1].id;
+      if (!tickets[id]) throw new Error("ticket inconnu : " + id + ". En attente : " + Object.keys(tickets).join(", "));
+      const { results: ph } = await env.DB.prepare("SELECT photo FROM receipts WHERE uh = ? AND id = ? ORDER BY n").bind(uh, id).all();
+      const info = { receipt_id: id, date: tickets[id].date, tickets_en_attente: Object.values(tickets), liste_de_courses: V.shopping || [], articles_ajoutes_a_la_liste: V.extras || [],
+        consigne: "Lis chaque ligne (nom en clair, prix, poids si indiqué, clé list_foods si c'est un aliment connu), puis appelle save_receipt avec ce receipt_id." };
+      return { __content: [{ type: "text", text: JSON.stringify(info) }, ...ph.map(p => { const [, mime, data] = p.photo.match(/^data:(image\/\w+);base64,(.*)$/); return { type: "image", mimeType: mime, data }; })] };
+    }
+    case "save_receipt": {
+      const id = str(a.receipt_id, 20);
+      if (!/^[a-z0-9]{2,20}$/.test(id)) throw new Error("receipt_id invalide");
+      const items = (Array.isArray(a.items) ? a.items : []).slice(0, 150).map(i => ({ nom: str(i && i.name, 80), p: Math.round(Math.max(0, +i.price || 0) * 100) / 100,
+        ...(i.food && (AL[i.food] || foods[i.food]) ? { k: i.food } : {}), ...(+i.grams > 0 ? { g: Math.round(+i.grams) } : {}), ...(i.to_pantry === false ? { out: true } : {}) })).filter(i => i.nom);
+      if (!items.length) throw new Error("items est vide");
+      await push("receipt", { id, store: str(a.store, 60), total: +a.total > 0 ? Math.round(+a.total * 100) / 100 : null, items });
+      await env.DB.prepare("DELETE FROM receipts WHERE uh = ? AND id = ?").bind(uh, id).run(); // lu : les photos restent sur le téléphone
+      return { message: `Ticket enregistré (${items.length} lignes) : à la prochaine ouverture de l'appli, les prix sont notés et les articles vont au placard.` };
+    }
     case "set_goals": {
       const g = { ...(+a.kcal >= 800 && +a.kcal <= 6000 ? { kcalJour: Math.round(+a.kcal) } : {}), ...(+a.prot >= 20 && +a.prot <= 400 ? { protJour: Math.round(+a.prot) } : {}) };
       if (!Object.keys(g).length) throw new Error("donne kcal (800 à 6000) et/ou prot (20 à 400)");
@@ -308,7 +438,7 @@ async function mcpMessage(env, uh, msg) {
     case "prompts/list": return ok({ prompts: [] });
     case "tools/call": {
       const p = msg.params || {};
-      try { return ok({ content: [{ type: "text", text: JSON.stringify(await callTool(env, uh, p.name, p.arguments || {})) }] }); }
+      try { const r = await callTool(env, uh, p.name, p.arguments || {}); return ok({ content: r && r.__content || [{ type: "text", text: JSON.stringify(r) }] }); }
       catch (e) { return ok({ content: [{ type: "text", text: "Erreur : " + e.message }], isError: true }); }
     }
   }

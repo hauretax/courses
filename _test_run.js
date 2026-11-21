@@ -271,6 +271,44 @@ window.addEventListener("load", () => {
       openCook("chili"); must(!q("#cpub"), "recette de base : pas de partage"); closeCook();
       openRecipeForm(); must(q('[data-rf="pub"]'), "case « partager » absente du formulaire"); closePlan();
     });
+    await A("assistant : articles hors recette, produits au placard, « avec ce que tu as », variante, ticket lu", async () => {
+      const ids = () => groups().flatMap(r => r.items);
+      handleInbox([{ id: 20, kind: "items", data: { items: [{ nom: "Dentifrice", qte: "", rayon: "Divers" }, { nom: "Pain de mie", qte: "2 paquets", rayon: "Épicerie" }, { nom: "dentifrice", qte: "", rayon: "Divers" }] } }]);
+      must(S.extras.filter(x => /dentifrice/i.test(x.nom)).length === 1, "dentifrice en double ou absent");
+      must(S.extras.some(x => x.nom === "Pain de mie" && x.qte === "2 paquets" && x.rayon === "Épicerie"), "pain de mie mal rangé : " + JSON.stringify(S.extras));
+      // Une recette à la feta : la feta ajoutée à la main à la liste + des tomates au placard suffisent à la proposer
+      handleInbox([{ id: 21, kind: "recipe", data: { id: "rfeta", recipe: { nom: "Salade grecque", emoji: "🥗", n: 2, temps: "10 min", types: ["legumes"],
+        ingredients: [[200, "g", "afeta"], [300, "g", "tomate"], [1, "cs", "huile"]], etapes: ["Coupe."], alim: { afeta: { n: "feta", k: 260, p: 14, loc: "frigo", e: "🧀", ray: "Crèmerie et frais" } } } } }]);
+      S.extras.push({ id: "xfeta", nom: "Feta AOP", qte: "", rayon: "Crèmerie et frais" });
+      handleInbox([{ id: 22, kind: "pantry", data: { items: [{ nom: "Tomates", k: "tomate", q: 4, u: "pc", loc: "frigo" }, { nom: "Confiture", q: 2, exp: "2027-01-01" }] } }]);
+      must(S.pantry.some(p => p.k === "tomate") && S.pantry.some(p => p.nom === "Confiture" && p.q === 2 && p.exp === "2027-01-01"), "placard : " + JSON.stringify(S.pantry.slice(-2)));
+      must(canMake(20).some(x => x.id === "rfeta" && x.got.includes("afeta") && x.got.includes("tomate")), "salade feta non proposée : " + JSON.stringify(canMake(20)));
+      closeSheet(); S.tab = "recettes"; render();
+      must(/Avec ce que tu as/.test(q("#view").textContent) && q('#view .card[data-r="rfeta"]'), "section « Avec ce que tu as » absente");
+      must(qa('[data-f="pub"]').length === 1 && qa('[data-f="miennes"]').length === 1, "filtres en double");
+      // Variante : le chili de la semaine passe au poulet ; seuls bœuf et poulet bougent dans la liste
+      const chili = getR("chili"), beef = chili.ingredients.find(g => Array.isArray(g) && g[2] === "boeuf");
+      must(beef && D.semaine.some(d => d.recette === "chili"), "pré-requis : chili au bœuf dans la semaine");
+      const keep = ids().find(i => i.id !== "g_boeuf" && i.id !== "g_poulet"); S.checked[keep.id] = true;
+      const nItems = ids().length;
+      handleInbox([{ id: 23, kind: "swap", data: { from: "chili", id: "rchip", label: "bœuf → poulet", recipe: { ...chili, nom: "Chili au poulet", ingredients: chili.ingredients.map(g => g === beef ? [beef[0], "g", "poulet"] : g) } } }]);
+      must(!D.semaine.some(d => d.recette === "chili") && D.semaine.some(d => d.recette === "rchip"), "la variante n'a pas pris la place du chili");
+      must(!ids().some(i => i.id === "g_boeuf") && ids().some(i => i.id === "g_poulet"), "liste : " + ids().map(i => i.id).join(","));
+      must(S.checked[keep.id] && ids().length === nItems, "le reste de la liste a bougé (" + nItems + " → " + ids().length + ")");
+      must(S.plan.courses === D.courses, "liste non enregistrée dans le plan");
+      // Ticket lu : prix notés, achats au placard (cochés + rangés), le sac ne va pas au placard
+      S.tickets.push({ id: "tk1", at: new Date().toISOString(), prices: {}, total: null, nPhotos: 1, v2: true, ai: "sent" });
+      const n0 = S.pantry.length;
+      handleInbox([{ id: 24, kind: "receipt", data: { id: "tk1", store: "Carrefour", total: 12, items: [{ nom: "Filet de poulet", k: "poulet", p: 7.5, g: 750 }, { nom: "Sac", p: 0.1, out: true }, { nom: "Dentifrice", p: 2 }] } }]);
+      const t = S.tickets.find(x => x.id === "tk1"), dent = S.extras.find(x => /dentifrice/i.test(x.nom));
+      must(t.ai === "done" && t.store === "Carrefour" && t.total === 12 && Object.keys(t.prices).length === 3, "ticket : " + JSON.stringify(t));
+      must(Math.abs(S.prix.poulet - 0.01) < 1e-9, "prix au gramme du poulet : " + S.prix.poulet);
+      must(S.pantry.length === n0 + 2 && S.pantry.some(p => p.k === "poulet" && pGrams(p) >= 700) && !S.pantry.some(p => p.nom === "Sac"), "placard : " + JSON.stringify(S.pantry.slice(n0)));
+      must(S.checked.g_poulet && S.stored.g_poulet && S.checked[dent.id] && S.stored[dent.id], "articles du ticket pas cochés/rangés");
+      handleInbox([{ id: 25, kind: "receipt", data: { id: "tk1", items: [{ nom: "Filet de poulet", k: "poulet", p: 7.5, g: 750 }] } }]);
+      must(S.pantry.length === n0 + 2, "ticket relu : poulet rangé deux fois");
+      await sheetTicketEdit(t); must(/Lu par ton assistant \(Carrefour\)/.test(q("#sheet").textContent), "statut du ticket absent"); closeSheet();
+    });
     out.push("FIN"); show();
   })();
 });
