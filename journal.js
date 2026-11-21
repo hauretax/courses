@@ -133,6 +133,22 @@ async function offBarcode(code) {
   return offMap({ ...d.product, code });
 }
 
+// ---- Prix relevés en magasin par d'autres (Open Prices, la base libre d'Open Food Facts) : le plus récent par magasin ----
+async function showPrices(code) {
+  try {
+    const d = await netGet(`https://prices.openfoodfacts.org/api/v1/prices?product_code=${encodeURIComponent(code)}&order_by=-date&size=50`);
+    const by = {};
+    for (const p of d.items || []) {
+      const l = p.location || {}, k = [l.osm_name, l.osm_address_city].filter(Boolean).join(", ");
+      if (k && p.currency === "EUR" && !by[k]) by[k] = p;
+    }
+    const rows = Object.entries(by).slice(0, 6), box = $("#oprices");
+    if (!box || !rows.length) return;
+    box.innerHTML = `<h4>💶 Prix relevés <small>(Open Prices)</small></h4><div class="list">` + rows.map(([k, p]) => `<div class="row hist"><span class="txt">${esc(k)}<small>${fmtDate(p.date)}</small></span>
+      <span class="qty">${euro(+p.price)}${p.price_per === "KILOGRAM" ? " /kg" : ""}</span></div>`).join("") + `</div>`;
+  } catch {} // hors ligne ou produit sans prix : rien à montrer
+}
+
 // ---- Écran « Ajouter » ----
 const A = { meal: "collation", q: "", results: null, loading: false, err: "" };
 function openAdd(meal) {
@@ -195,7 +211,9 @@ function sheetFood(f) {
     ${per100 ? `<label class="qtyrow">Quantité <input id="qg" type="number" inputmode="decimal" value="${qty0}" min="0"> g</label>
       <div class="quick">${[50, 100, 150, 200, 250].map(g => `<button data-g="${g}">${g} g</button>`).join("")}${f.portion ? `<button data-g="${f.portion}">1 portion</button>` : ""}</div>` : ""}
     <div class="calc"><b id="ck"></b> kcal · <b id="cp"></b> g de protéines</div>
-    <button class="primary wide" id="sadd">Ajouter</button>`, () => {
+    <button class="primary wide" id="sadd">Ajouter</button>
+    ${f.code ? `<div id="oprices"></div>` : ""}`, () => {
+    if (f.code) showPrices(f.code);
     const calc = () => {
       const g = per100 ? +$("#qg").value || 0 : null;
       const k = per100 ? f.k100 * g / 100 : f.kcal, p = per100 ? f.p100 * g / 100 : f.prot;

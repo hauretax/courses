@@ -309,6 +309,19 @@ window.addEventListener("load", () => {
       must(S.pantry.length === n0 + 2, "ticket relu : poulet rangé deux fois");
       await sheetTicketEdit(t); must(/Lu par ton assistant \(Carrefour\)/.test(q("#sheet").textContent), "statut du ticket absent"); closeSheet();
     });
+    await A("produit scanné : prix relevés par magasin (Open Prices)", async () => {
+      const f0 = window.fetch;
+      window.fetch = async url => ({ ok: true, json: async () => /prices\.openfoodfacts/.test(url) ? { items: [
+        { price: 4.05, currency: "EUR", date: "2026-11-05", location: { osm_name: "Carrefour City", osm_address_city: "Nancy" } },
+        { price: 4.2, currency: "EUR", date: "2026-11-01", location: { osm_name: "Carrefour City", osm_address_city: "Nancy" } },
+        { price: 9.9, currency: "EUR", date: "2026-10-01", price_per: "KILOGRAM", location: { osm_name: "Lidl", osm_address_city: "Lyon" } }] } : {} });
+      try {
+        sheetFood({ nom: "Pâte à tartiner", marque: "", k100: 540, p100: 6, code: "3017620422003" });
+        await new Promise(r => setTimeout(r, 50));
+        const t = q("#oprices").textContent;
+        must(/Carrefour City, Nancy/.test(t) && /4,05/.test(t) && !/4,20/.test(t) && /9,90 € \/kg/.test(t), "prix : " + t);
+      } finally { window.fetch = f0; closeSheet(); }
+    });
     out.push("FIN"); show();
   })();
 });
